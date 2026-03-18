@@ -36,6 +36,7 @@ Keep package quality and upstream Gemini CLI parity automatically verified throu
 - CI and Release workflows must execute full solution tests before smoke subsets, excluding auth-required tests with `-- --treenode-filter "/*/*/*/*[RequiresGeminiAuth!=true]"`.
 - CI, Release, and scheduled smoke workflows must install Gemini CLI in a way that remains resolvable by later `dotnet test` steps (for example by adding local `node_modules/.bin` to `PATH`).
 - Windows workflows that checkout recursive submodules must enable Git long paths before `actions/checkout`, otherwise upstream Gemini snapshot files can break checkout.
+- Workflow action refs must stay on current Node 24-capable upstream versions where available; when the latest upstream action still runs on Node 20, prefer an equivalent shell/`gh` implementation over keeping a deprecated JS action.
 - Gemini CLI smoke test workflow steps must run `GeminiCli_Smoke_*` via `GeminiSharpSDK.Tests` project scope to avoid false `zero tests ran` failures in non-smoke test assemblies.
 - Gemini CLI smoke validation must cover both `gemini --help` and headless `gemini --prompt ... --output-format stream-json`, proving root and non-interactive surfaces stay discoverable.
 - Release workflow must build/test before pack/publish.

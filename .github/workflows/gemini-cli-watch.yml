@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout repository with submodules
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6.0.2
         with:
           submodules: recursive
           fetch-depth: 0
@@ -245,7 +245,7 @@ jobs:
 
       - name: Create issue for Gemini CLI update
         if: steps.detect.outputs.has_update == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           CURRENT_SHA: ${{ steps.detect.outputs.current_sha }}
           LATEST_SHA: ${{ steps.detect.outputs.latest_sha }}
