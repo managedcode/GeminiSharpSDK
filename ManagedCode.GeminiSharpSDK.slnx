@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="GeminiSharpSDK/GeminiSharpSDK.csproj" />
+  <Project Path="GeminiSharpSDK.Extensions.AI/GeminiSharpSDK.Extensions.AI.csproj" />
+  <Project Path="GeminiSharpSDK.Extensions.AgentFramework/GeminiSharpSDK.Extensions.AgentFramework.csproj" />
+  <Project Path="GeminiSharpSDK.Tests/GeminiSharpSDK.Tests.csproj" />
+</Solution>

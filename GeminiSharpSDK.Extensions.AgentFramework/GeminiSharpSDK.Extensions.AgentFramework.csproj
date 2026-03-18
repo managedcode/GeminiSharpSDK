@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>.NET Microsoft Agent Framework adapter for GeminiSharpSDK, providing AIAgent registration helpers.</Description>
+    <PackageDescription>$(Description)</PackageDescription>
+    <PackageVersion>$(Version)-rc4</PackageVersion>
+    <PackageId>ManagedCode.GeminiSharpSDK.Extensions.AgentFramework</PackageId>
+    <RootNamespace>ManagedCode.GeminiSharpSDK.Extensions.AgentFramework</RootNamespace>
+    <AssemblyName>ManagedCode.GeminiSharpSDK.Extensions.AgentFramework</AssemblyName>
+    <PackageTags>gemini;google;sdk;ai;agent;cli;microsoft-agent-framework;aiagent</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Agents.AI" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GeminiSharpSDK.Extensions.AI\GeminiSharpSDK.Extensions.AI.csproj" />
+  </ItemGroup>
+</Project>

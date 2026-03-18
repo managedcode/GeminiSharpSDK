@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ManagedCode.GeminiSharpSDK.Tests</RootNamespace>
+    <AssemblyName>ManagedCode.GeminiSharpSDK.Tests</AssemblyName>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CA1707;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GeminiSharpSDK.Extensions.AgentFramework\GeminiSharpSDK.Extensions.AgentFramework.csproj" />
+    <ProjectReference Include="..\GeminiSharpSDK.Extensions.AI\GeminiSharpSDK.Extensions.AI.csproj" />
+    <ProjectReference Include="..\GeminiSharpSDK\GeminiSharpSDK.csproj" />
+  </ItemGroup>
+</Project>
