@@ -35,7 +35,10 @@ jobs:
         node-version: ${{ env.NODE_VERSION }}
 
     - name: Install Gemini CLI
-      run: npm install --no-save @google/gemini-cli
+      shell: bash
+      run: |
+        npm install --no-save @google/gemini-cli
+        echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
     - name: Extract version from Directory.Build.props
       id: version

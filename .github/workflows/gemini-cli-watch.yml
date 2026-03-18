@@ -61,32 +61,39 @@ jobs:
 
           extract_model_snapshot() {
             local sha="$1"
-            read_file_at_sha "$sha" "$MODELS_FILE" | python - "$MODELS_FILE" <<'PY'
-import re
-import sys
+            read_file_at_sha "$sha" "$MODELS_FILE" | python3 -c '
+            import re
+            import sys
 
-path = sys.argv[1]
-content = sys.stdin.read()
+            path = sys.argv[1]
+            content = sys.stdin.read()
+            quote = chr(39)
+            quoted_value_pattern = "[\"" + quote + "]([^\"" + quote + "]+)[\"" + quote + "]"
+            matches = []
 
-matches = []
+            if path.endswith("models.ts"):
+                models_set_match = re.search(
+                    r"export\s+const\s+VALID_GEMINI_MODELS\s*=\s*new\s+Set\s*\(\s*\[(.*?)\]\s*\)",
+                    content,
+                    re.S,
+                )
+                if models_set_match:
+                    matches = re.findall(quoted_value_pattern, models_set_match.group(1))
 
-if path.endswith('models.ts'):
-    models_set_match = re.search(
-        r'export\s+const\s+VALID_GEMINI_MODELS\s*=\s*new\s+Set\s*\(\s*\[(.*?)\]\s*\)',
-        content,
-        re.S,
-    )
-    if models_set_match:
-        matches = re.findall(r"""["']([^"']+)["']""", models_set_match.group(1))
+                if not matches:
+                    matches = re.findall(
+                        r"export\s+const\s+[A-Z0-9_]*_MODEL[A-Z0-9_]*\s*=\s*" + quoted_value_pattern,
+                        content,
+                    )
+            else:
+                matches = re.findall(
+                    r"export\s+const\s+[^\s]+\s*=\s*" + quoted_value_pattern,
+                    content,
+                )
 
-    if not matches:
-        matches = re.findall(r'export\s+const\s+[A-Z0-9_]*_MODEL[A-Z0-9_]*\s*=\s*["\']([^"\']+)["\']', content)
-else:
-    matches = re.findall(r"export\s+const\s+[^\s]+\s*=\s*'([^']+)'", content)
-
-for value in sorted(set(matches)):
-    print(value)
-PY
+            for value in sorted(set(matches)):
+                print(value)
+            ' "$MODELS_FILE"
           }
 
           extract_feature_snapshot() {

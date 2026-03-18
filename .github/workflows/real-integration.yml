@@ -22,6 +22,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - name: Enable Git long paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -38,7 +42,10 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Install Gemini CLI
-        run: npm install --no-save @google/gemini-cli
+        shell: bash
+        run: |
+          npm install --no-save @google/gemini-cli
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Restore
         run: dotnet restore ManagedCode.GeminiSharpSDK.slnx
