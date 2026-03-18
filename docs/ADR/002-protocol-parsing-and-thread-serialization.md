@@ -5,7 +5,7 @@
 
 ## Context
 
-Gemini CLI emits dynamic JSONL events (`thread.started`, `item.completed`, etc.).
+Gemini CLI now emits `stream-json` events such as `init`, `message`, `tool_use`, `tool_result`, `result`, and `error`.
 Without strict parsing rules and synchronized turn execution, SDK behavior can diverge under concurrency and protocol evolution.
 User rule in this repository explicitly forbids inline string literals for protocol token matching.
 
@@ -13,13 +13,14 @@ User rule in this repository explicitly forbids inline string literals for proto
 
 1. Centralize protocol tokens in `GeminiProtocolConstants`.
 2. Parse events/items only through constant-based switches.
-3. Serialize execution per `GeminiThread` instance with `SemaphoreSlim`.
+3. Support the current `stream-json` contract first, while tolerating a limited set of legacy persisted fixtures/events where needed for backward-compatible tests.
+4. Serialize execution per `GeminiThread` instance with `SemaphoreSlim`.
 
 ## Diagram
 
 ```mermaid
 flowchart LR
-  Line["JSONL line"] --> Parse["ThreadEventParser"]
+  Line["stream-json line"] --> Parse["ThreadEventParser"]
   Parse --> Consts["GeminiProtocolConstants"]
   GeminiThread["GeminiThread.Run*Async"] --> Lock["SemaphoreSlim turn lock"]
   Lock --> Exec["GeminiExec.RunAsync"]
@@ -33,10 +34,11 @@ flowchart LR
 - No magic literals in parser logic.
 - Safer maintenance when protocol tokens change.
 - Eliminates race conditions for same thread instance.
+- Current runtime and test fixtures can evolve independently without hidden parser drift.
 
 ### Negative
 
-- Additional constants maintenance when upstream adds new token names.
+- Additional constants maintenance when upstream adds new token names or retires old ones.
 
 ### Neutral
 

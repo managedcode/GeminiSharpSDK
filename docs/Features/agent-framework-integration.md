@@ -48,7 +48,7 @@ Enable GeminiSharpSDK consumers to use Microsoft Agent Framework (`AIAgent`) on 
 
 - New custom `AIAgent` runtime implementation parallel to `ChatClientAgent`
 - Microsoft Agent Framework hosting/workflows helpers (`Microsoft.Agents.AI.Hosting`, durable agents, DevUI)
-- Changes to core SDK execution, thread state, parsing, or CLI contracts
+- Redefining core SDK execution, thread state, parsing, or CLI contracts beyond consuming the already-supported `stream-json` runtime
 
 ---
 
@@ -102,6 +102,7 @@ Enable GeminiSharpSDK consumers to use Microsoft Agent Framework (`AIAgent`) on 
 - Side effects / emitted events: creates singleton `GeminiChatClient` and singleton/keyed `ChatClientAgent`
 - Idempotency: follows standard DI additive registration semantics; repeated registration adds additional descriptors
 - Error handling: null guard exceptions on registration inputs; runtime agent execution errors are delegated to existing `GeminiChatClient` / MAF behaviour
+- CLI specificity: the agent layer inherits the current Gemini headless contract (`--prompt ... --output-format stream-json`) through `GeminiChatClient`; this package does not introduce a second transport model
 - Security / permissions: no new permissions beyond existing `gemini` CLI prerequisites; MAF function invocation remains opt-in through consumer-supplied tools/options
 - Feature flags / toggles: none
 - Performance / SLAs: registration-time object construction only; no extra background work
@@ -118,7 +119,7 @@ flowchart LR
   MAF["ChatClientAgent (MAF)"]
   MEAI["GeminiChatClient (IChatClient)"]
   Core["GeminiClient / GeminiThread"]
-  CLI["gemini exec --json"]
+  CLI["gemini --prompt ... --output-format stream-json"]
 
   Consumer --> DI
   DI --> MAF
@@ -167,6 +168,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | EDGE-001 | MAF decorates `IChatClient` with middleware | Unit | Agent-resolved chat client still exposes `ChatClientMetadata` with provider `GeminiCLI` | `GeminiAgentServiceCollectionExtensionsTests.AddGeminiAIAgent_RegistersAIAgentAndChatClient`, `AddKeyedGeminiAIAgent_RegistersKeyedAgent` |
 | EDGE-002 | Keyed agent configuration preserves instructions and default model | Unit | `ChatClientAgentOptions` and `ChatClientMetadata` reflect configured values | `GeminiAgentServiceCollectionExtensionsTests.AddKeyedGeminiAIAgent_WithConfiguration_AppliesKeyedAgentOptions` |
+| EDGE-003 | Agent execution uses the same CLI-specific chat adapter contract as direct `IChatClient` usage | Unit | No alternate transport or extra provider abstraction is introduced by the agent layer | covered by DI composition tests over `GeminiChatClient` |
 
 ### Test mapping
 

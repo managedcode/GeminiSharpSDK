@@ -5,7 +5,8 @@
 
 ## Context
 
-Gemini is CLI-oriented and communicates via `gemini exec --json` with JSONL events.
+Gemini is CLI-oriented and the current headless contract is the root command
+`gemini --prompt ... --output-format stream-json`, which emits newline-delimited JSON events.
 To keep behavior parity and reduce protocol drift, this .NET SDK needs a transport strategy aligned with real CLI behavior.
 
 ## Decision
@@ -14,16 +15,16 @@ Use the local Gemini CLI process as the only runtime transport layer for `Manage
 
 - `GeminiExec` builds argument order and environment variables.
 - `DefaultGeminiProcessRunner` starts process and streams stdout lines asynchronously.
-- `ThreadEventParser` maps JSONL protocol to strongly typed events and items.
+- `ThreadEventParser` maps `stream-json` events to strongly typed events and items.
 
 ## Diagram
 
 ```mermaid
 flowchart LR
   SDK["ManagedCode.GeminiSharpSDK"] --> Exec["GeminiExec"]
-  Exec --> Cli["gemini exec --json"]
-  Cli --> Jsonl["stdout JSONL"]
-  Jsonl --> Parser["ThreadEventParser"]
+  Exec --> Cli["gemini --prompt ... --output-format stream-json"]
+  Cli --> Json["stdout stream-json"]
+  Json --> Parser["ThreadEventParser"]
   Parser --> Models["ThreadEvent / ThreadItem"]
 ```
 
@@ -33,12 +34,13 @@ flowchart LR
 
 - High parity with upstream CLI behavior.
 - No separate protocol server to maintain.
-- Easy compatibility when Gemini CLI adds flags/events.
+- Easy compatibility when Gemini CLI adds headless flags/events.
 
 ### Negative
 
 - Requires `gemini` binary availability in environment.
 - Runtime errors may come from external process failures.
+- Unsupported headless-only option gaps must fail explicitly instead of being guessed by the SDK.
 
 ### Neutral
 

@@ -30,7 +30,7 @@ Enable GeminiSharpSDK to participate as a first-class provider in the `Microsoft
 - `IEmbeddingGenerator` (Gemini CLI is not an embedding service)
 - `IImageGenerator` (Gemini CLI is not an image generator)
 - Consumer-side `AITool` registration (Gemini manages tools internally)
-- `Temperature`, `TopP`, `TopK` mapping (Gemini uses `ModelReasoningEffort`)
+- Generic tuning mappings not exposed by the current headless Gemini CLI contract (for example `Temperature`, `TopP`, `TopK`, and unsupported reasoning flags)
 
 ---
 
@@ -41,8 +41,9 @@ Enable GeminiSharpSDK to participate as a first-class provider in the `Microsoft
 - Multiple `ChatMessage` entries are concatenated into a single prompt while preserving original message chronology (Gemini CLI is single-prompt-per-turn).
 - `ChatOptions.Tools` is silently ignored; tool results surface as custom `AIContent` types.
 - `GetService<ChatClientMetadata>()` returns provider name `"GeminiCLI"` with default model from options.
-- Streaming events map item-level, not token-level.
-- Turn failures (`TurnFailedEvent`) propagate as `InvalidOperationException`.
+- Streaming maps the real CLI event sequence (`init`, `message`, `tool_use`, `tool_result`, `result`, `error`), not token-level deltas.
+- Unsupported CLI options fail fast when `GeminiThread` cannot express them through the current headless contract.
+- Turn failures propagate from CLI `error` events or process/runtime failures as `InvalidOperationException`.
 
 ---
 
@@ -148,12 +149,14 @@ flowchart LR
   MsgMapper["ChatMessageMapper"]
   OptMapper["ChatOptionsMapper"]
   Thread["GeminiThread.RunAsync"]
+  Cli["gemini --prompt ... --output-format stream-json"]
   RespMapper["ChatResponseMapper"]
   Output["ChatResponse"]
 
   Input --> MsgMapper
   MsgMapper --> Thread
   OptMapper --> Thread
+  Thread --> Cli
   Thread --> RespMapper
   RespMapper --> Output
 ```
@@ -172,6 +175,7 @@ flowchart LR
 
 - Mapper tests: `GeminiSharpSDK.Extensions.AI.Tests/ChatMessageMapperTests.cs`, `ChatOptionsMapperTests.cs`, `ChatResponseMapperTests.cs`, `StreamingEventMapperTests.cs`
 - DI tests: `GeminiSharpSDK.Extensions.AI.Tests/GeminiServiceCollectionExtensionsTests.cs`
+- Adapter regression tests must stay aligned with the current real CLI event contract and the Agent Framework composition layer.
 
 ---
 

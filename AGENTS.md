@@ -91,6 +91,7 @@ If no new rule is detected -> do not update the file.
 - Upstream sync automation must track real `google-gemini/gemini-cli` CLI changes (flags/models/features), not TypeScript SDK surface diffs, and open actionable repository issues for required SDK follow-up.
 - Automatically opened upstream sync issues must include change summary/checklist and assign Copilot by default.
 - For `google-gemini/gemini-cli` repo sync/update work, always inspect `submodules/google-gemini-cli/gemini-rs/core/models.json` and reconcile SDK model constants against that bundled catalog because it is the repo-authoritative model source.
+- When adapting the SDK to upstream Gemini CLI changes, prioritize reflecting real CLI-specific behavior while keeping the `GeminiClient` / `GeminiThread` contract coherent with `GeminiSharpSDK.Extensions.AI` and `GeminiSharpSDK.Extensions.AgentFramework`.
 - At the end of implementation/code-change tasks, create a git commit unless the user explicitly says not to, so the workspace ends in a reviewable state.
 - Run verification in this order:
   - focused tests for changed behavior
@@ -132,6 +133,7 @@ If no new rule is detected -> do not update the file.
 - CI/release full-solution runs must exclude auth-required tests using `-- --treenode-filter "/*/*/*/*[RequiresGeminiAuth!=true]"` so pipelines remain non-auth and deterministic.
 - Cross-platform non-auth smoke must run `gemini` from local installation in CI and verify unauthenticated behavior explicitly (for example `gemini login status` in isolated profile returns "Not logged in"), proving binary discovery + process launch on each platform.
 - Real Gemini integration tests must rely on existing local Gemini CLI login/session only; do not read or require `OPENAI_API_KEY` in test setup.
+- Adapter regression coverage is critical: when CLI contract changes affect streaming/events/options, keep the `Extensions.AI` and `Extensions.AgentFramework` tests green in the same pass.
 - Do not use nullable `TryGetSettings()` + early `return` skip patterns in real integration tests; resolve required settings directly and fail fast with actionable errors when missing.
 - Do not bypass integration tests on Windows with unconditional early returns; keep tests cross-platform for supported Gemini CLI environments.
 - Parser changes require tests in `ThreadEventParserTests` for supported and invalid payloads.

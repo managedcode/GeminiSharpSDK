@@ -17,7 +17,7 @@ Implement `IChatClient` from `Microsoft.Extensions.AI.Abstractions` in a **separ
 
 2. **Custom AIContent types** — Rich Gemini items (command execution, file changes, MCP tool calls, web searches, multi-agent collaboration) are surfaced as typed `AIContent` subclasses rather than being flattened to text. This preserves full fidelity of Gemini output.
 
-3. **Gemini-specific options via AdditionalProperties** — Standard `ChatOptions` properties (`ModelId`, `ConversationId`) map directly. Gemini-unique features use `gemini:*` prefixed keys in `ChatOptions.AdditionalProperties` (e.g., `gemini:sandbox_mode`, `gemini:reasoning_effort`).
+3. **Gemini-specific options via AdditionalProperties** — Standard `ChatOptions` properties (`ModelId`, `ConversationId`) map directly. Gemini-unique features use `gemini:*` prefixed keys in `ChatOptions.AdditionalProperties` (for example `gemini:sandbox_mode`). Options not supported by the current headless CLI contract fail fast instead of silently degrading.
 
 4. **Thread-per-call with ConversationId resume** — Each `GetResponseAsync` call creates or resumes a `GeminiThread`. Thread ID flows via `ChatResponse.ConversationId` for multi-turn continuity.
 
@@ -30,7 +30,7 @@ flowchart LR
   Consumer["Consumer code\n(IChatClient)"]
   Adapter["GeminiChatClient\n(Extensions.AI)"]
   Core["GeminiClient\n(Core SDK)"]
-  CLI["gemini exec --json"]
+  CLI["gemini --prompt ... --output-format stream-json"]
 
   Consumer --> Adapter
   Adapter --> Core
@@ -55,12 +55,13 @@ flowchart LR
 - SDK participates in .NET AI ecosystem: DI registration, middleware pipelines, provider swapping.
 - Consumers get logging, caching, and telemetry for free via M.E.AI middleware.
 - Rich Gemini items preserved as typed content, not lost.
+- Adapter behavior stays aligned with the real installed CLI contract instead of a guessed chat abstraction.
 
 ### Negative
 
 - Impedance mismatch: Gemini is an agentic coding tool, not a simple chat API. Multi-turn via message history doesn't map cleanly (uses thread resume instead).
-- No temperature/topP/topK (Gemini uses `ModelReasoningEffort`).
-- Streaming is item-level, not token-level.
+- Current headless CLI does not expose generic chat-tuning knobs such as temperature/topP/topK, and unsupported options are rejected explicitly.
+- Streaming is event-level (`init`/`message`/`tool_use`/`tool_result`/`result`), not token-level.
 
 ### Neutral
 
