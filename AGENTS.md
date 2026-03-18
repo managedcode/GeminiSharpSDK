@@ -88,9 +88,9 @@ If no new rule is detected -> do not update the file.
 - Implement code and tests together.
 - When asked to fix review findings, close every confirmed finding in the same pass; do not leave partial fixes.
 - Do not keep or add public sample projects; repository focus is SDK + tests only.
-- Upstream sync automation must track real `google-gemini/gemini-cli` CLI changes (flags/models/features), not TypeScript SDK surface diffs, and open actionable repository issues for required SDK follow-up.
+- Upstream sync automation must trigger from real `google-gemini/gemini-cli` GitHub releases/tags, then summarize real CLI changes (flags/models/features) and open actionable repository issues for required SDK follow-up.
 - Automatically opened upstream sync issues must include change summary/checklist and assign Copilot by default.
-- For `google-gemini/gemini-cli` repo sync/update work, always inspect `submodules/google-gemini-cli/gemini-rs/core/models.json` and reconcile SDK model constants against that bundled catalog because it is the repo-authoritative model source.
+- For `google-gemini/gemini-cli` repo sync/update work, always inspect the currently bundled upstream model catalog (currently `submodules/google-gemini-cli/packages/core/src/config/models.ts`) and reconcile SDK model constants against that catalog because the exact upstream path may move over time.
 - When adapting the SDK to upstream Gemini CLI changes, prioritize reflecting real CLI-specific behavior while keeping the `GeminiClient` / `GeminiThread` contract coherent with `GeminiSharpSDK.Extensions.AI` and `GeminiSharpSDK.Extensions.AgentFramework`.
 - At the end of implementation/code-change tasks, create a git commit unless the user explicitly says not to, so the workspace ends in a reviewable state.
 - Run verification in this order:

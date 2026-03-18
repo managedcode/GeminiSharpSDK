@@ -43,12 +43,12 @@ Keep package quality and upstream Gemini CLI parity automatically verified throu
 - Release workflow must pack every packable NuGet project in the repository, not a hand-maintained subset.
 - Release workflow must use generated GitHub release notes.
 - Release workflow must create/push git tag `v<version>` before publishing GitHub release.
-- Gemini CLI watch runs daily and opens issue when upstream `google-gemini/gemini-cli` changed since pinned submodule SHA.
+- Gemini CLI watch runs daily and opens issue when a newer upstream `google-gemini/gemini-cli` GitHub release/tag exists beyond the pinned submodule commit.
 - Completing a Gemini CLI sync issue must update the pinned `submodules/google-gemini-cli` commit after validation.
-- Sync issue body must derive flag changes from CLI source snapshots, model changes from `packages/core/src/config/models.ts`, and feature changes from `packages/core/src/config/config.ts` so alerts stay actionable.
+- Sync issue body must derive flag changes from CLI source snapshots, model changes from the bundled upstream model catalog (`packages/core/src/config/models.ts` in the current repo layout), and feature changes from `schemas/settings.schema.json` so alerts stay actionable.
 - SDK model constants must cover every bundled slug from `submodules/google-gemini-cli/packages/core/src/config/models.ts` whenever upstream Gemini repo sync work updates the pinned submodule.
 - Sync issue must assign Copilot by default.
-- Duplicate sync issue for same upstream SHA is not allowed.
+- Duplicate sync issue for the same upstream release tag/SHA is not allowed.
 
 ---
 
@@ -59,7 +59,8 @@ flowchart LR
   Push["push / pull_request"] --> CI["ci.yml"]
   Main["push main"] --> Release["release.yml"]
   Daily["daily cron"] --> Watch["gemini-cli-watch.yml"]
-  Watch --> Issue["GitHub Issue: Gemini CLI sync"]
+  Watch --> UpstreamRelease["latest upstream GitHub release"]
+  UpstreamRelease --> Issue["GitHub Issue: Gemini CLI sync"]
   CI --> Quality["build + test"]
   Release --> NuGet["NuGet publish + GitHub release"]
 ```
@@ -90,4 +91,4 @@ flowchart LR
 
 - Workflows are versioned and valid in repository.
 - Local commands match CI commands.
-- Daily sync issue automation is configured and documented.
+- Daily release-following sync issue automation is configured and documented.

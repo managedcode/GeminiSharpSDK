@@ -28,9 +28,12 @@ jobs:
       - name: Detect updates in google/gemini-cli
         id: detect
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
+          UPSTREAM_REPO="google-gemini/gemini-cli"
           SUBMODULE_PATH="submodules/google-gemini-cli"
           MODELS_FILE="packages/core/src/config/models.ts"
           CONFIG_SCHEMA_FILE="schemas/settings.schema.json"
@@ -39,6 +42,7 @@ jobs:
             "packages/cli/src/config/config.ts"
             "packages/core/src/config/config.ts"
           )
+          CLI_RELEVANT_PATHS_REGEX='^(packages/|schemas/|gemini-rs/|docs/|README\.md|CHANGELOG\.md|package\.json|package-lock\.json|pnpm-lock\.yaml|bun\.lockb?|Cargo\.toml|Cargo\.lock)'
 
           read_file_at_sha() {
             local sha="$1"
@@ -136,15 +140,37 @@ PY
             default_branch="main"
           fi
 
-          git -C "$SUBMODULE_PATH" fetch origin "$default_branch" --depth=512
-          latest_sha="$(git -C "$SUBMODULE_PATH" rev-parse FETCH_HEAD)"
+          git -C "$SUBMODULE_PATH" fetch origin "$default_branch" --tags --depth=512
+
+          latest_release_json="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$UPSTREAM_REPO/releases/latest")"
+
+          latest_release_tag="$(printf '%s' "$latest_release_json" | jq -r '.tag_name // empty')"
+          latest_release_name="$(printf '%s' "$latest_release_json" | jq -r '.name // empty')"
+          latest_release_url="$(printf '%s' "$latest_release_json" | jq -r '.html_url // empty')"
+          latest_release_published_at="$(printf '%s' "$latest_release_json" | jq -r '.published_at // empty')"
+
+          if [ -z "$latest_release_tag" ]; then
+            echo "Could not resolve latest upstream release tag for $UPSTREAM_REPO" >&2
+            exit 1
+          fi
+
+          latest_sha="$(git -C "$SUBMODULE_PATH" rev-list -n 1 "refs/tags/$latest_release_tag^{commit}")"
+          current_release_tag="$(git -C "$SUBMODULE_PATH" describe --tags --exact-match "$current_sha" 2>/dev/null || true)"
 
           echo "current_sha=$current_sha" >> "$GITHUB_OUTPUT"
           echo "latest_sha=$latest_sha" >> "$GITHUB_OUTPUT"
           echo "default_branch=$default_branch" >> "$GITHUB_OUTPUT"
+          echo "current_release_tag=$current_release_tag" >> "$GITHUB_OUTPUT"
+          echo "latest_release_tag=$latest_release_tag" >> "$GITHUB_OUTPUT"
+          echo "latest_release_name=$latest_release_name" >> "$GITHUB_OUTPUT"
+          echo "latest_release_url=$latest_release_url" >> "$GITHUB_OUTPUT"
+          echo "latest_release_published_at=$latest_release_published_at" >> "$GITHUB_OUTPUT"
 
-          if [ "$current_sha" = "$latest_sha" ]; then
-            echo "No upstream updates."
+          if [ "$current_sha" = "$latest_sha" ] || git -C "$SUBMODULE_PATH" merge-base --is-ancestor "$latest_sha" "$current_sha"; then
+            echo "No newer upstream release beyond pinned submodule commit."
             echo "has_update=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -157,7 +183,7 @@ PY
 
           echo "has_update=true" >> "$GITHUB_OUTPUT"
 
-          cli_changed_files="$(printf '%s\n' "$changed_files" | grep -E '^(codex-rs/|docs/|README\.md|CHANGELOG\.md|Cargo\.toml|Cargo\.lock|package\.json)' || true)"
+          cli_changed_files="$(printf '%s\n' "$changed_files" | grep -E "$CLI_RELEVANT_PATHS_REGEX" || true)"
           if [ -z "$cli_changed_files" ]; then
             cli_changed_files="$(printf '%s\n' "$changed_files" | head -n 200)"
           fi
@@ -217,6 +243,11 @@ PY
           CURRENT_SHA: ${{ steps.detect.outputs.current_sha }}
           LATEST_SHA: ${{ steps.detect.outputs.latest_sha }}
           DEFAULT_BRANCH: ${{ steps.detect.outputs.default_branch }}
+          CURRENT_RELEASE_TAG: ${{ steps.detect.outputs.current_release_tag }}
+          LATEST_RELEASE_TAG: ${{ steps.detect.outputs.latest_release_tag }}
+          LATEST_RELEASE_NAME: ${{ steps.detect.outputs.latest_release_name }}
+          LATEST_RELEASE_URL: ${{ steps.detect.outputs.latest_release_url }}
+          LATEST_RELEASE_PUBLISHED_AT: ${{ steps.detect.outputs.latest_release_published_at }}
           CLI_CHANGED_FILES: ${{ steps.detect.outputs.cli_changed_files }}
           COMMITS: ${{ steps.detect.outputs.commits }}
           CHANGED_FLAGS: ${{ steps.detect.outputs.changed_flags }}
@@ -228,6 +259,11 @@ PY
             const currentSha = process.env.CURRENT_SHA;
             const latestSha = process.env.LATEST_SHA;
             const defaultBranch = process.env.DEFAULT_BRANCH;
+            const currentReleaseTag = process.env.CURRENT_RELEASE_TAG || '';
+            const latestReleaseTag = process.env.LATEST_RELEASE_TAG || '';
+            const latestReleaseName = process.env.LATEST_RELEASE_NAME || '';
+            const latestReleaseUrl = process.env.LATEST_RELEASE_URL || '';
+            const latestReleasePublishedAt = process.env.LATEST_RELEASE_PUBLISHED_AT || '';
             const changedFilesRaw = process.env.CLI_CHANGED_FILES || '';
             const commitsRaw = process.env.COMMITS || '';
             const changedFlags = process.env.CHANGED_FLAGS || '- (not provided)';
@@ -237,7 +273,7 @@ PY
 
             const shortCurrent = currentSha.slice(0, 7);
             const shortLatest = latestSha.slice(0, 7);
-            const marker = `<!-- geminisharp-gemini-cli-update:${latestSha} -->`;
+            const marker = `<!-- geminisharp-gemini-cli-release:${latestReleaseTag}:${latestSha} -->`;
             const labelName = 'gemini-cli-sync';
 
             const changedFiles = changedFilesRaw
@@ -281,16 +317,21 @@ PY
               return;
             }
 
-            const title = `Sync Gemini CLI upstream changes (${shortCurrent} -> ${shortLatest})`;
+            const title = `Sync Gemini CLI release ${latestReleaseTag} (${shortCurrent} -> ${shortLatest})`;
             const body = [
               marker,
               '',
-              'Detected upstream updates in `google-gemini/gemini-cli` affecting CLI surface tracking.',
+              'Detected a newer upstream release in `google-gemini/gemini-cli` affecting CLI surface tracking.',
               '',
               `- Submodule path: \`submodules/google-gemini-cli\``,
               `- Watched branch: \`${defaultBranch}\``,
+              `- Current pinned release tag: ${currentReleaseTag ? `\`${currentReleaseTag}\`` : '_not pinned to an exact release tag_'}`,
               `- Current pinned commit: \`${currentSha}\``,
+              `- Latest upstream release tag: \`${latestReleaseTag}\``,
+              `- Latest upstream release name: ${latestReleaseName || '_not provided_'}`,
               `- Latest upstream commit: \`${latestSha}\``,
+              `- Release published at: ${latestReleasePublishedAt || '_not provided_'}`,
+              `- Release page: ${latestReleaseUrl || '_not provided_'}`,
               `- Compare: ${compareUrl}`,
               `- Latest commit: ${latestCommitUrl}`,
               '',
@@ -310,7 +351,9 @@ PY
               commits,
               '',
               '## Action required',
+              '- [ ] Review upstream release notes and confirm breaking/non-breaking CLI changes',
               '- [ ] Validate latest `gemini --help` and headless `gemini --prompt ... --output-format stream-json` output',
+              '- [ ] Update pinned `submodules/google-gemini-cli` release/tag after validation',
               '- [ ] Sync C# SDK constants/options/models with upstream CLI changes',
               '- [ ] Add or update tests for new flags/models/features',
               '- [ ] Update docs (README + docs/Features + docs/Architecture if needed)',
