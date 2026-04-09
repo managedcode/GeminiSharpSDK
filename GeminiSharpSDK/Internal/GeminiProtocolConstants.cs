@@ -30,7 +30,6 @@ internal static class GeminiProtocolConstants
         internal const string Prompt = "prompt";
         internal const string Query = "query";
         internal const string ReceiverThreadIds = "receiver_thread_ids";
-        internal const string RecipientThreadIds = "receiver_thread_ids";
         internal const string Role = "role";
         internal const string Result = "result";
         internal const string Severity = "severity";
@@ -40,7 +39,6 @@ internal static class GeminiProtocolConstants
         internal const string StructuredContent = "structured_content";
         internal const string SessionId = "session_id";
         internal const string Stats = "stats";
-        internal const string Statuses = "status";
         internal const string StructuredOutput = "structured_output";
         internal const string Text = "text";
         internal const string ToolId = "tool_id";

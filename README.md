@@ -393,10 +393,10 @@ See [docs/Features/meai-integration.md](https://github.com/managedcode/GeminiSha
 An optional adapter package lets you use GeminiSharpSDK with Microsoft Agent Framework `AIAgent`.
 
 ```bash
-dotnet add package ManagedCode.GeminiSharpSDK.Extensions.AgentFramework --prerelease
+dotnet add package ManagedCode.GeminiSharpSDK.Extensions.AgentFramework
 ```
 
-This package currently ships as a prerelease because it depends on `Microsoft.Agents.AI` `1.0.0-rc4`.
+This package now ships on the same stable version track as the core SDK because `Microsoft.Agents.AI` is stable.
 
 ### Basic usage
 

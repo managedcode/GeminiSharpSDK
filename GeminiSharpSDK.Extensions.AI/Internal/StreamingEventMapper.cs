@@ -154,6 +154,7 @@ internal static class StreamingEventMapper
                                 InputTokenCount = tc.Usage.InputTokens,
                                 OutputTokenCount = tc.Usage.OutputTokens,
                                 TotalTokenCount = tc.Usage.InputTokens + tc.Usage.OutputTokens,
+                                CachedInputTokenCount = tc.Usage.CachedInputTokens > 0 ? tc.Usage.CachedInputTokens : null,
                             }),
                         ],
                     };
@@ -172,6 +173,7 @@ internal static class StreamingEventMapper
                                     InputTokenCount = resultEvent.Usage.InputTokens,
                                     OutputTokenCount = resultEvent.Usage.OutputTokens,
                                     TotalTokenCount = resultEvent.Usage.InputTokens + resultEvent.Usage.OutputTokens,
+                                    CachedInputTokenCount = resultEvent.Usage.CachedInputTokens > 0 ? resultEvent.Usage.CachedInputTokens : null,
                                 }),
                             ],
                     };

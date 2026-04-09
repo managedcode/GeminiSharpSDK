@@ -45,6 +45,25 @@ public class ThreadEventParserTests
     }
 
     [Test]
+    public async Task Parse_ParsesResultUsageFromCachedInputTokensStatsShape()
+    {
+        var parsed = (ResultEvent)ThreadEventParser.Parse(
+            "{\"type\":\"result\",\"status\":\"success\",\"stats\":{\"input_tokens\":10,\"cached_input_tokens\":7,\"output_tokens\":5}}");
+
+        await Assert.That(parsed.Usage).IsNotNull();
+        await Assert.That(parsed.Usage!.CachedInputTokens).IsEqualTo(7);
+    }
+
+    [Test]
+    public async Task Parse_ParsesTurnCompletedUsageFromLegacyCachedShape()
+    {
+        var parsed = (TurnCompletedEvent)ThreadEventParser.Parse(
+            "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"cached\":2,\"output_tokens\":5}}");
+
+        await Assert.That(parsed.Usage.CachedInputTokens).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Parse_ParsesToolResultError()
     {
         var parsed = (ToolResultEvent)ThreadEventParser.Parse(

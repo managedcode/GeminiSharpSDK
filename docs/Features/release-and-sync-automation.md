@@ -43,6 +43,7 @@ Keep package quality and upstream Gemini CLI parity automatically verified throu
 - Release workflow must read package version from `Directory.Build.props`.
 - Release workflow must validate semantic version format before packaging.
 - Release workflow must fail if the produced core `.nupkg` version does not match `Directory.Build.props`.
+- Release workflow must fail if any produced packable `.nupkg` version diverges from the centralized stable solution version.
 - Release workflow must pack every packable NuGet project in the repository, not a hand-maintained subset.
 - Release workflow must use generated GitHub release notes.
 - Release workflow must create/push git tag `v<version>` before publishing GitHub release.

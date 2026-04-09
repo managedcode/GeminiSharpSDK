@@ -63,4 +63,21 @@ public class StructuredOutputSchemaTests
         var exception = await Assert.That(action).ThrowsException();
         await Assert.That(exception).IsTypeOf<ArgumentException>();
     }
+
+    [Test]
+    public async Task Object_RequiredPropertyNames_PreserveControlCharacters()
+    {
+        const string propertyName = "status\nwith\ttabs\u0001";
+
+        var schema = StructuredOutputSchema.Map(
+            new Dictionary<string, StructuredOutputSchema>
+            {
+                [propertyName] = StructuredOutputSchema.PlainText(),
+            },
+            required: [propertyName]);
+
+        var json = schema.ToJsonObject();
+
+        await Assert.That(json["required"]![0]!.GetValue<string>()).IsEqualTo(propertyName);
+    }
 }

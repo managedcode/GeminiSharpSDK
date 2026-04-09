@@ -53,6 +53,28 @@ public class StreamingEventMapperTests
         await Assert.That(updates.Count).IsGreaterThanOrEqualTo(4);
     }
 
+    [Test]
+    public async Task ToUpdates_ResultUsage_MapsCachedInputTokens()
+    {
+        var events = ToAsyncEnumerable(new ResultEvent("success", new Usage(10, 4, 5), null));
+
+        var updates = await CollectUpdates(events);
+        var usageContent = updates[0].Contents.OfType<UsageContent>().Single();
+
+        await Assert.That(usageContent.Details.CachedInputTokenCount).IsEqualTo(4);
+    }
+
+    [Test]
+    public async Task ToUpdates_TurnCompletedUsage_MapsCachedInputTokens()
+    {
+        var events = ToAsyncEnumerable(new TurnCompletedEvent(new Usage(12, 6, 3)));
+
+        var updates = await CollectUpdates(events);
+        var usageContent = updates[0].Contents.OfType<UsageContent>().Single();
+
+        await Assert.That(usageContent.Details.CachedInputTokenCount).IsEqualTo(6);
+    }
+
     private static async IAsyncEnumerable<ThreadEvent> ToAsyncEnumerable(params ThreadEvent[] events)
     {
         foreach (var evt in events)

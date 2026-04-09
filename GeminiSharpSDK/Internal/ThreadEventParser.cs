@@ -58,7 +58,7 @@ internal static class ThreadEventParser
 
         return new Usage(
             GetRequiredInt32(usageElement, GeminiProtocolConstants.Properties.InputTokens),
-            GetOptionalInt32(usageElement, GeminiProtocolConstants.Properties.Cached) ?? 0,
+            GetOptionalCachedInputTokens(usageElement),
             GetRequiredInt32(usageElement, GeminiProtocolConstants.Properties.OutputTokens));
     }
 
@@ -66,8 +66,36 @@ internal static class ThreadEventParser
     {
         return new Usage(
             GetRequiredInt32(usageElement, GeminiProtocolConstants.Properties.InputTokens),
-            GetRequiredInt32(usageElement, GeminiProtocolConstants.Properties.CachedInputTokens),
+            GetRequiredCachedInputTokens(usageElement),
             GetRequiredInt32(usageElement, GeminiProtocolConstants.Properties.OutputTokens));
+    }
+
+    private static int GetOptionalCachedInputTokens(JsonElement usageElement)
+    {
+        return TryGetCachedInputTokens(usageElement, out var cachedInputTokens)
+            ? cachedInputTokens
+            : 0;
+    }
+
+    private static int GetRequiredCachedInputTokens(JsonElement usageElement)
+    {
+        if (TryGetCachedInputTokens(usageElement, out var cachedInputTokens))
+        {
+            return cachedInputTokens;
+        }
+
+        throw new InvalidOperationException(
+            $"Missing required property '{GeminiProtocolConstants.Properties.CachedInputTokens}'");
+    }
+
+    private static bool TryGetCachedInputTokens(JsonElement usageElement, out int cachedInputTokens)
+    {
+        if (TryGetInt32(usageElement, GeminiProtocolConstants.Properties.CachedInputTokens, out cachedInputTokens))
+        {
+            return true;
+        }
+
+        return TryGetInt32(usageElement, GeminiProtocolConstants.Properties.Cached, out cachedInputTokens);
     }
 
     private static ThreadError ParseThreadError(JsonElement errorElement)
@@ -455,6 +483,23 @@ internal static class ThreadEventParser
         }
 
         return intValue;
+    }
+
+    private static bool TryGetInt32(JsonElement element, string property, out int intValue)
+    {
+        if (!element.TryGetProperty(property, out var value)
+            || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            intValue = default;
+            return false;
+        }
+
+        if (!value.TryGetInt32(out intValue))
+        {
+            throw new InvalidOperationException($"Property '{property}' must be an integer");
+        }
+
+        return true;
     }
 
     private static bool GetRequiredBoolean(JsonElement element, string property)

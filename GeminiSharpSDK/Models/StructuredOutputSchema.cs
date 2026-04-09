@@ -208,13 +208,9 @@ public sealed record StructuredOutputSchema
         throw new ArgumentException("Property selector must point to a model property.");
     }
 
-    private static JsonNode CreateStringJsonNode(string value)
+    private static JsonValue CreateStringJsonNode(string value)
     {
-        var escapedValue = value
-            .Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("\"", "\\\"", StringComparison.Ordinal);
-
-        return JsonNode.Parse($"\"{escapedValue}\"")
+        return JsonValue.Create(value)
                ?? throw new InvalidOperationException("Failed to create JSON node for required property.");
     }
 

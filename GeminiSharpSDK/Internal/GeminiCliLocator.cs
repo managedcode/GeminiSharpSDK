@@ -7,7 +7,6 @@ internal static class GeminiCliLocator
     private const string PathEnvironmentVariable = "PATH";
     private const string CmdScriptExtension = ".cmd";
     private const string BatScriptExtension = ".bat";
-    private const string NpmScopePrefix = "@google/";
     private const string NodeModulesDirectory = "node_modules";
     private const string GoogleScopeDirectory = "@google";
     private const string VendorDirectory = "vendor";
@@ -21,12 +20,12 @@ internal static class GeminiCliLocator
     private const string TargetWindowsX64 = "x86_64-pc-windows-msvc";
     private const string TargetWindowsArm64 = "aarch64-pc-windows-msvc";
 
-    private const string PackageGeminiLinuxX64 = "/gemini-cli-linux-x64";
-    private const string PackageGeminiLinuxArm64 = "/gemini-cli-linux-arm64";
-    private const string PackageGeminiDarwinX64 = "/gemini-cli-darwin-x64";
-    private const string PackageGeminiDarwinArm64 = "/gemini-cli-darwin-arm64";
-    private const string PackageGeminiWindowsX64 = "/gemini-cli-win32-x64";
-    private const string PackageGeminiWindowsArm64 = "/gemini-cli-win32-arm64";
+    private const string PackageGeminiLinuxX64 = "gemini-cli-linux-x64";
+    private const string PackageGeminiLinuxArm64 = "gemini-cli-linux-arm64";
+    private const string PackageGeminiDarwinX64 = "gemini-cli-darwin-x64";
+    private const string PackageGeminiDarwinArm64 = "gemini-cli-darwin-arm64";
+    private const string PackageGeminiWindowsX64 = "gemini-cli-win32-x64";
+    private const string PackageGeminiWindowsArm64 = "gemini-cli-win32-arm64";
 
     internal const string GeminiExecutableName = "gemini";
     internal const string GeminiWindowsExecutableName = "gemini.exe";
@@ -112,6 +111,11 @@ internal static class GeminiCliLocator
             : UnixPathExecutableCandidates;
     }
 
+    internal static string? GetCurrentTargetTriple()
+    {
+        return GetTargetTriple();
+    }
+
     private static bool TryResolveNpmInstalledBinary(out string binaryPath)
     {
         binaryPath = string.Empty;
@@ -122,26 +126,39 @@ internal static class GeminiCliLocator
             return false;
         }
 
+        return TryResolveNpmInstalledBinary(EnumerateSearchRoots(), targetTriple, OperatingSystem.IsWindows(), out binaryPath);
+    }
+
+    internal static bool TryResolveNpmInstalledBinary(
+        IEnumerable<string> searchRoots,
+        string targetTriple,
+        bool isWindows,
+        out string binaryPath)
+    {
+        ArgumentNullException.ThrowIfNull(searchRoots);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetTriple);
+
         if (!PlatformPackageByTarget.TryGetValue(targetTriple, out var packageName))
         {
+            binaryPath = string.Empty;
             return false;
         }
 
-        if (!packageName.StartsWith(NpmScopePrefix, StringComparison.Ordinal))
-        {
-            return false;
-        }
+        binaryPath = string.Empty;
+        var executableName = isWindows ? GeminiWindowsExecutableName : GeminiExecutableName;
 
-        var packageDirectory = packageName[NpmScopePrefix.Length..];
-        var executableName = OperatingSystem.IsWindows() ? GeminiWindowsExecutableName : GeminiExecutableName;
-
-        foreach (var root in EnumerateSearchRoots())
+        foreach (var root in searchRoots)
         {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
             var primaryPath = Path.Combine(
                 root,
                 NodeModulesDirectory,
                 GoogleScopeDirectory,
-                packageDirectory,
+                packageName,
                 VendorDirectory,
                 targetTriple,
                 TargetGeminiDirectory,
@@ -160,7 +177,7 @@ internal static class GeminiCliLocator
                 NestedGeminiPackageDirectory,
                 NodeModulesDirectory,
                 GoogleScopeDirectory,
-                packageDirectory,
+                packageName,
                 VendorDirectory,
                 targetTriple,
                 TargetGeminiDirectory,

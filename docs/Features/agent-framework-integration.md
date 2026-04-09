@@ -60,7 +60,7 @@ Enable GeminiSharpSDK consumers to use Microsoft Agent Framework (`AIAgent`) on 
 4. `AddKeyedGeminiAIAgent()` MUST register keyed `IChatClient` and keyed `AIAgent` using the same service key.
 5. Agent configuration supplied through `ChatClientAgentOptions` MUST flow into the created agent without mutating Gemini-specific chat client defaults.
 6. Gemini provider metadata exposed through `ChatClientMetadata` MUST remain available from the agent-resolved chat client.
-7. `ManagedCode.GeminiSharpSDK.Extensions.AgentFramework` MUST publish as a prerelease package while its `Microsoft.Agents.AI` dependency remains prerelease, and consumer install docs MUST use prerelease-aware instructions.
+7. `ManagedCode.GeminiSharpSDK.Extensions.AgentFramework` MUST ship on the same stable version track as the rest of the repository while `Microsoft.Agents.AI` remains stable, and consumer install docs MUST use the regular stable package command.
 
 ---
 
@@ -184,7 +184,7 @@ flowchart LR
 ## Definition of Done
 
 - `ManagedCode.GeminiSharpSDK.Extensions.AgentFramework` exists as a separate opt-in package.
-- `ManagedCode.GeminiSharpSDK.Extensions.AgentFramework` uses a project-specific prerelease package version aligned to the current `Microsoft.Agents.AI` RC dependency.
+- `ManagedCode.GeminiSharpSDK.Extensions.AgentFramework` uses the same stable package version as the rest of the repository while `Microsoft.Agents.AI` remains stable.
 - Direct `GeminiChatClient` + `AsAIAgent(...)` usage is documented in `README.md`.
 - DI helpers register non-keyed and keyed `AIAgent` instances over Gemini chat clients.
 - Automated tests cover happy path and keyed-edge path registration behaviour.

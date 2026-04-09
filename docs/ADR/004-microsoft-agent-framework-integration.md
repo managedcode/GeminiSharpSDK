@@ -39,7 +39,7 @@ Key points:
 1. Keep MAF dependency out of core SDK and out of `ManagedCode.GeminiSharpSDK.Extensions.AI`.
 2. Reuse the existing `IChatClient` adapter instead of creating a bespoke Gemini-specific `AIAgent`.
 3. Expose DI helpers for both non-keyed and keyed `AIAgent` registration to make the integration first-class for host applications.
-4. Keep the package itself on a prerelease version track while `Microsoft.Agents.AI` is prerelease so NuGet packaging remains valid.
+4. Keep the package on the same stable version track as the rest of the repository while `Microsoft.Agents.AI` remains stable so local `dotnet pack` and release workflow packaging resolve identical versions.
 
 ## Diagram
 
@@ -102,7 +102,7 @@ flowchart LR
 ### Negative / risks
 
 - Adds one more optional NuGet package to maintain.
-- Introduces a preview/RC ecosystem dependency surface from Microsoft Agent Framework.
+- Tracks the stable Microsoft Agent Framework package line.
 - Full solution tests remain influenced by local real-CLI environment and may still fail outside this change.
 
 Mitigation:
@@ -170,7 +170,7 @@ Mitigation:
 ## Rollout and migration
 
 - Migration steps:
-  - consumers that want MAF install `ManagedCode.GeminiSharpSDK.Extensions.AgentFramework` as a prerelease package
+  - consumers that want MAF install `ManagedCode.GeminiSharpSDK.Extensions.AgentFramework`
   - optionally continue using `GeminiChatClient` directly with `AsAIAgent(...)`
 - Backwards compatibility:
   - no breaking changes to existing public APIs

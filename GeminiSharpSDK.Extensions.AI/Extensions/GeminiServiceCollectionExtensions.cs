@@ -13,7 +13,7 @@ public static class GeminiServiceCollectionExtensions
 
         var options = new GeminiChatClientOptions();
         configure?.Invoke(options);
-        services.AddSingleton<IChatClient>(new GeminiChatClient(options));
+        services.AddSingleton<IChatClient>(_ => new GeminiChatClient(options));
         return services;
     }
 
@@ -27,7 +27,7 @@ public static class GeminiServiceCollectionExtensions
 
         var options = new GeminiChatClientOptions();
         configure?.Invoke(options);
-        services.AddKeyedSingleton<IChatClient>(serviceKey, new GeminiChatClient(options));
+        services.AddKeyedSingleton<IChatClient>(serviceKey, (_, _) => new GeminiChatClient(options));
         return services;
     }
 }

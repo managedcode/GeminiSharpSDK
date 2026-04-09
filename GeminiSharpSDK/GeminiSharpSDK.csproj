@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>.NET SDK for the OpenAI Gemini CLI with streaming thread events.</Description>
+    <Description>.NET SDK for the Google Gemini CLI with streaming thread events.</Description>
     <PackageId>ManagedCode.GeminiSharpSDK</PackageId>
     <RootNamespace>ManagedCode.GeminiSharpSDK</RootNamespace>
     <AssemblyName>ManagedCode.GeminiSharpSDK</AssemblyName>

@@ -90,7 +90,6 @@ public class GeminiModelsTests
         {
             Path.Combine(repositoryRoot, "submodules", "google-gemini-cli", "packages", "core", "src", "config", BundledModelsTsFileName),
             Path.Combine(repositoryRoot, "submodules", "google-gemini-cli", "gemini-rs", "core", BundledModelsFileName),
-            Path.Combine(repositoryRoot, "submodules", "google-gemini-cli", "codex-rs", "core", BundledModelsFileName),
         };
 
         foreach (var candidate in candidates)

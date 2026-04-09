@@ -93,6 +93,62 @@ public class GeminiCliLocatorTests
         }
     }
 
+    [Test]
+    public async Task TryResolveNpmInstalledBinary_ResolvesPrimaryVendoredBinary()
+    {
+        var targetTriple = GeminiCliLocator.GetCurrentTargetTriple();
+        if (targetTriple is null)
+        {
+            return;
+        }
+
+        var sandboxDirectory = CreateSandboxDirectory();
+
+        try
+        {
+            var binaryPath = CreateVendoredBinaryPath(sandboxDirectory, targetTriple, nested: false);
+            Directory.CreateDirectory(Path.GetDirectoryName(binaryPath)!);
+            await File.WriteAllTextAsync(binaryPath, "binary");
+
+            var resolved = GeminiCliLocator.TryResolveNpmInstalledBinary([sandboxDirectory], targetTriple, OperatingSystem.IsWindows(), out var executablePath);
+
+            await Assert.That(resolved).IsTrue();
+            await Assert.That(executablePath).IsEqualTo(binaryPath);
+        }
+        finally
+        {
+            Directory.Delete(sandboxDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task TryResolveNpmInstalledBinary_ResolvesNestedVendoredBinary()
+    {
+        var targetTriple = GeminiCliLocator.GetCurrentTargetTriple();
+        if (targetTriple is null)
+        {
+            return;
+        }
+
+        var sandboxDirectory = CreateSandboxDirectory();
+
+        try
+        {
+            var binaryPath = CreateVendoredBinaryPath(sandboxDirectory, targetTriple, nested: true);
+            Directory.CreateDirectory(Path.GetDirectoryName(binaryPath)!);
+            await File.WriteAllTextAsync(binaryPath, "binary");
+
+            var resolved = GeminiCliLocator.TryResolveNpmInstalledBinary([sandboxDirectory], targetTriple, OperatingSystem.IsWindows(), out var executablePath);
+
+            await Assert.That(resolved).IsTrue();
+            await Assert.That(executablePath).IsEqualTo(binaryPath);
+        }
+        finally
+        {
+            Directory.Delete(sandboxDirectory, recursive: true);
+        }
+    }
+
     private static string CreateSandboxDirectory()
     {
         var sandboxDirectory = Path.Combine(
@@ -102,5 +158,49 @@ public class GeminiCliLocatorTests
             $"GeminiCliLocatorTests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(sandboxDirectory);
         return sandboxDirectory;
+    }
+
+    private static string CreateVendoredBinaryPath(string sandboxDirectory, string targetTriple, bool nested)
+    {
+        var packageDirectory = GetPackageDirectory(targetTriple);
+        var executableName = OperatingSystem.IsWindows()
+            ? GeminiCliLocator.GeminiWindowsExecutableName
+            : GeminiCliLocator.GeminiExecutableName;
+
+        var segments = new List<string>
+        {
+            sandboxDirectory,
+            "node_modules",
+            "@google",
+        };
+
+        if (nested)
+        {
+            segments.Add("gemini");
+            segments.Add("node_modules");
+            segments.Add("@google");
+        }
+
+        segments.Add(packageDirectory);
+        segments.Add("vendor");
+        segments.Add(targetTriple);
+        segments.Add("gemini");
+        segments.Add(executableName);
+
+        return Path.Combine([.. segments]);
+    }
+
+    private static string GetPackageDirectory(string targetTriple)
+    {
+        return targetTriple switch
+        {
+            "x86_64-unknown-linux-musl" => "gemini-cli-linux-x64",
+            "aarch64-unknown-linux-musl" => "gemini-cli-linux-arm64",
+            "x86_64-apple-darwin" => "gemini-cli-darwin-x64",
+            "aarch64-apple-darwin" => "gemini-cli-darwin-arm64",
+            "x86_64-pc-windows-msvc" => "gemini-cli-win32-x64",
+            "aarch64-pc-windows-msvc" => "gemini-cli-win32-arm64",
+            _ => throw new InvalidOperationException($"Unsupported test target triple: {targetTriple}"),
+        };
     }
 }
