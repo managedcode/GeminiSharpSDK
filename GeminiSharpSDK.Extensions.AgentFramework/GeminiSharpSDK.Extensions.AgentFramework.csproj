@@ -2,7 +2,6 @@
   <PropertyGroup>
     <Description>.NET Microsoft Agent Framework adapter for GeminiSharpSDK, providing AIAgent registration helpers.</Description>
     <PackageDescription>$(Description)</PackageDescription>
-    <PackageVersion>$(Version)-rc4</PackageVersion>
     <PackageId>ManagedCode.GeminiSharpSDK.Extensions.AgentFramework</PackageId>
     <RootNamespace>ManagedCode.GeminiSharpSDK.Extensions.AgentFramework</RootNamespace>
     <AssemblyName>ManagedCode.GeminiSharpSDK.Extensions.AgentFramework</AssemblyName>
