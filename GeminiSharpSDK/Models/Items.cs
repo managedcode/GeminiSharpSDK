@@ -25,6 +25,7 @@ public enum PatchChangeKind
 
 public enum PatchApplyStatus
 {
+    InProgress,
     Completed,
     Failed,
 }

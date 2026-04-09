@@ -17,6 +17,7 @@ public class ThreadEventParserPerformanceTests
         """{"type":"result","status":"success","stats":{"input_tokens":10,"cached":3,"output_tokens":5}}""",
         """{"type":"thread.started","thread_id":"legacy_thread"}""",
         """{"type":"turn.failed","error":{"message":"legacy failed"}}""",
+        """{"type":"item.started","item":{"id":"file_1","type":"file_change","changes":[{"path":"src/app.cs","kind":"update"}],"status":"in_progress"}}""",
         """{"type":"item.completed","item":{"id":"agent_1","type":"agent_message","text":"legacy text"}}""",
     ];
 
@@ -70,6 +71,7 @@ public class ThreadEventParserPerformanceTests
         await Assert.That(eventKinds).Contains(typeof(ResultEvent).FullName!);
         await Assert.That(eventKinds).Contains(typeof(ThreadStartedEvent).FullName!);
         await Assert.That(eventKinds).Contains(typeof(TurnFailedEvent).FullName!);
+        await Assert.That(eventKinds).Contains(typeof(ItemStartedEvent).FullName!);
         await Assert.That(eventKinds).Contains(typeof(ItemCompletedEvent).FullName!);
         await Assert.That(toolResultStatuses).IsEquivalentTo([ToolResultStatus.Success]);
         await Assert.That(assistantMessages).IsGreaterThan(0);

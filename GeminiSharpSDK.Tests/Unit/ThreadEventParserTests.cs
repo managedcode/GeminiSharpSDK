@@ -64,6 +64,21 @@ public class ThreadEventParserTests
     }
 
     [Test]
+    public async Task Parse_ParsesFileChangeItemStartedWithInProgressStatus()
+    {
+        var parsed = (ItemStartedEvent)ThreadEventParser.Parse(
+            "{\"type\":\"item.started\",\"item\":{\"id\":\"item_1\",\"type\":\"file_change\",\"changes\":[{\"path\":\"C:/git/GeminiSandbox/apple.txt\",\"kind\":\"add\"}],\"status\":\"in_progress\"}}");
+
+        await Assert.That(parsed.Item).IsTypeOf<FileChangeItem>();
+
+        var fileChange = (FileChangeItem)parsed.Item;
+        await Assert.That(fileChange.Status).IsEqualTo(PatchApplyStatus.InProgress);
+        await Assert.That(fileChange.Changes).Count().IsEqualTo(1);
+        await Assert.That(fileChange.Changes[0].Path).IsEqualTo("C:/git/GeminiSandbox/apple.txt");
+        await Assert.That(fileChange.Changes[0].Kind).IsEqualTo(PatchChangeKind.Add);
+    }
+
+    [Test]
     public async Task Parse_ThrowsForUnsupportedEventType()
     {
         var action = () => ThreadEventParser.Parse("{\"type\":\"unknown\"}");

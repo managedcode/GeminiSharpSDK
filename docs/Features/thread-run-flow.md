@@ -40,6 +40,7 @@ Provide deterministic thread-based execution over Gemini CLI so C# consumers can
 - Invalid JSONL event lines must fail fast with parse context.
 - Protocol tokens are parsed via constants, not inline literals.
 - Parser must support the current `init`, `message`, `tool_use`, `tool_result`, `error`, and `result` event envelope, while retaining compatibility with older persisted thread fixtures.
+- `file_change` items may surface before completion with `status=in_progress`; parser must accept in-progress, completed, and failed patch-apply states.
 - Optional `ILogger` (`Microsoft.Extensions.Logging`) receives process lifecycle diagnostics (start/success/failure/cancellation).
 - Structured output uses typed `StructuredOutputSchema` models that are embedded into the prompt contract and deserialized to typed DTOs; fenced JSON responses are normalized before deserialization.
 - `LocalImageInput` accepts image path, `FileInfo`, or `Stream`; stream inputs are materialized to temp files and referenced in the prompt as local `@path` inputs.

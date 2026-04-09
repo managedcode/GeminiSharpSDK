@@ -301,6 +301,7 @@ internal static class ThreadEventParser
     {
         return status switch
         {
+            GeminiProtocolConstants.Statuses.InProgress => PatchApplyStatus.InProgress,
             GeminiProtocolConstants.Statuses.Completed => PatchApplyStatus.Completed,
             GeminiProtocolConstants.Statuses.Failed => PatchApplyStatus.Failed,
             _ => throw new InvalidOperationException($"Unsupported patch apply status: {status}"),
