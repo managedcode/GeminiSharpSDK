@@ -57,10 +57,9 @@ internal sealed class RealGeminiTestSandbox : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(WorkingDirectory))
-        {
-            Directory.Delete(WorkingDirectory, recursive: true);
-        }
+        // Gemini CLI persists visited project directories in ~/.gemini/projects.json and may
+        // re-read them later in the same test session. Keeping auth sandboxes on disk avoids
+        // spurious "Directory does not exist" startup failures during full-suite runs.
     }
 
     private static string ResolveRepositoryRootPath()
