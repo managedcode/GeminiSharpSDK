@@ -45,6 +45,7 @@ Provide deterministic thread-based execution over Gemini CLI so C# consumers can
 - `LocalImageInput` accepts image path, `FileInfo`, or `Stream`; stream inputs are materialized to temp files and referenced in the prompt as local `@path` inputs.
 - Gemini executable resolution is deterministic: prefer npm-vendored native binary, then PATH lookup; on Windows PATH lookup checks `gemini.exe`, `gemini.cmd`, `gemini.bat`, then `gemini`.
 - Thread options map only the current supported headless Gemini CLI flags (`model`, `resume`, `approval-mode`, `include-directories`, sandbox toggle), plus raw `AdditionalCliArguments` passthrough for forward-compatible flags.
+- A fresh SDK-started Gemini run with a dedicated working directory persists a resumable session file and is visible through `gemini --list-sessions` for that same project.
 - Unsupported legacy headless flags fail fast with actionable `NotSupportedException`.
 - Cleanup failures are never silently swallowed; process/schema/image cleanup issues are logged through `ILogger`.
 
@@ -109,6 +110,7 @@ flowchart LR
 - Protocol parsing: [ThreadEventParserTests.cs](../../GeminiSharpSDK.Tests/Unit/ThreadEventParserTests.cs)
 - CLI argument mapping: [GeminiExecTests.cs](../../GeminiSharpSDK.Tests/Unit/GeminiExecTests.cs)
 - Client lifecycle: [GeminiClientTests.cs](../../GeminiSharpSDK.Tests/Unit/GeminiClientTests.cs)
+- Real session persistence visibility: [RealGeminiIntegrationTests.cs](../../GeminiSharpSDK.Tests/Integration/RealGeminiIntegrationTests.cs)
 
 ---
 

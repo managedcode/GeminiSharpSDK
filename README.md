@@ -81,6 +81,8 @@ var thread = client.StartThread(new ThreadOptions
 
 `ThreadOptions` maps to the current headless Gemini CLI surface (`--prompt`, `--output-format stream-json`, `--resume`, `--approval-mode`, `--include-directories`, and sandbox toggle). Unsupported legacy flags fail fast.
 
+Fresh SDK-started runs persist per Gemini project/working directory and are visible via `gemini --list-sessions` for that same project.
+
 ```csharp
 var thread = client.StartThread(new ThreadOptions
 {

@@ -133,6 +133,7 @@ If no new rule is detected -> do not update the file.
 - CI/release full-solution runs must exclude auth-required tests using `-- --treenode-filter "/*/*/*/*[RequiresGeminiAuth!=true]"` so pipelines remain non-auth and deterministic.
 - Cross-platform non-auth smoke must run `gemini` from local installation in CI and verify unauthenticated behavior explicitly (for example `gemini login status` in isolated profile returns "Not logged in"), proving binary discovery + process launch on each platform.
 - Real Gemini integration tests must rely on existing local Gemini CLI login/session only; do not read or require `OPENAI_API_KEY` in test setup.
+- For local authenticated Gemini verification, prefer the cheapest available Gemini model that works in the current account/environment to keep testing costs down.
 - Adapter regression coverage is critical: when CLI contract changes affect streaming/events/options, keep the `Extensions.AI` and `Extensions.AgentFramework` tests green in the same pass.
 - Do not use nullable `TryGetSettings()` + early `return` skip patterns in real integration tests; resolve required settings directly and fail fast with actionable errors when missing.
 - Do not bypass integration tests on Windows with unconditional early returns; keep tests cross-platform for supported Gemini CLI environments.
@@ -206,6 +207,7 @@ If no new rule is detected -> do not update the file.
 
 - Read `AGENTS.md` and relevant docs before editing code.
 - Keep API behavior aligned with actual Gemini CLI contracts first; TypeScript SDK mapping may be used only as an optional historical reference, not as a blocker for C# SDK design.
+- For `ManagedCode.GeminiSharpSDK`, do not import Codex-specific behavior, docs, or assumptions into implementation or tests unless the user explicitly asks for cross-SDK comparison; keep Gemini fixes grounded in real Gemini CLI behavior.
 - Maintain GitHub workflow health (`.github/workflows`).
 
 **Ask first:**

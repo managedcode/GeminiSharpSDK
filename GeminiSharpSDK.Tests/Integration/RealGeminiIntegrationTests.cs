@@ -1,4 +1,7 @@
+using System.Diagnostics;
+using System.Text.Json;
 using ManagedCode.GeminiSharpSDK.Client;
+using ManagedCode.GeminiSharpSDK.Internal;
 using ManagedCode.GeminiSharpSDK.Models;
 using ManagedCode.GeminiSharpSDK.Tests.Shared;
 
@@ -7,6 +10,26 @@ namespace ManagedCode.GeminiSharpSDK.Tests.Integration;
 [Property("RequiresGeminiAuth", "true")]
 public class RealGeminiIntegrationTests
 {
+    private const string SolutionFileName = "ManagedCode.GeminiSharpSDK.slnx";
+    private const string TestsDirectoryName = "tests";
+    private const string SandboxDirectoryName = ".sandbox";
+    private const string SandboxPrefix = "RealGeminiIntegrationTests-SessionVisibility-";
+    private const string GitExecutableName = "git";
+    private const string GitInitArgument = "init";
+    private const string QuietArgument = "-q";
+    private const string ListSessionsFlag = "--list-sessions";
+    private const string GeminiDirectoryName = ".gemini";
+    private const string ProjectsFileName = "projects.json";
+    private const string ProjectsPropertyName = "projects";
+    private const string TmpDirectoryName = "tmp";
+    private const string ChatsDirectoryName = "chats";
+    private const string SessionIdPropertyName = "sessionId";
+    private const string SessionFileSearchPattern = "session-*.json";
+    private const string ProjectSessionVisiblePrompt = "Reply with short plain text: ok.";
+    private static readonly TimeSpan SessionVisibilityTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan CliCommandTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
+
     [Test]
     public async Task RunAsync_WithRealGeminiCli_ReturnsStructuredOutput()
     {
@@ -90,6 +113,55 @@ public class RealGeminiIntegrationTests
         await Assert.That(thread.Id).IsEqualTo(firstThreadId);
     }
 
+    [Test]
+    public async Task RunAsync_WithFreshWorkingDirectory_PersistsSessionVisibleToGeminiCli()
+    {
+        var settings = RealGeminiTestSupport.GetRequiredSettings();
+        var sandboxDirectory = await CreateGitSandboxDirectoryAsync();
+
+        try
+        {
+            using var client = RealGeminiTestSupport.CreateClient();
+            var thread = client.StartThread(new ThreadOptions
+            {
+                Model = settings.Model,
+                WorkingDirectory = sandboxDirectory,
+                Ephemeral = false,
+            });
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+
+            var result = await thread.RunAsync(
+                ProjectSessionVisiblePrompt,
+                new TurnOptions { CancellationToken = cancellation.Token });
+
+            await Assert.That(result.Usage).IsNotNull();
+            await Assert.That(thread.Id).IsNotNull();
+
+            var persistedSessionPath = await FindPersistedSessionPathAsync(
+                sandboxDirectory,
+                thread.Id!,
+                SessionVisibilityTimeout);
+
+            await Assert.That(persistedSessionPath).IsNotNull();
+
+            var listSessionsResult = await RunGeminiAsync(
+                sandboxDirectory,
+                CliCommandTimeout,
+                ListSessionsFlag);
+
+            await Assert.That(listSessionsResult.ExitCode).IsEqualTo(0);
+            await Assert.That(string.Concat(listSessionsResult.StandardOutput, listSessionsResult.StandardError))
+                .Contains(thread.Id!);
+        }
+        finally
+        {
+            if (Directory.Exists(sandboxDirectory))
+            {
+                Directory.Delete(sandboxDirectory, recursive: true);
+            }
+        }
+    }
+
     private static GeminiThread StartRealIntegrationThread(GeminiClient client, string model)
     {
         return client.StartThread(new ThreadOptions
@@ -97,4 +169,199 @@ public class RealGeminiIntegrationTests
             Model = model,
         });
     }
+
+    private static async Task<string> CreateGitSandboxDirectoryAsync()
+    {
+        var repositoryRoot = ResolveRepositoryRootPath();
+        var sandboxDirectory = Path.Combine(
+            repositoryRoot,
+            TestsDirectoryName,
+            SandboxDirectoryName,
+            $"{SandboxPrefix}{Guid.NewGuid():N}");
+
+        Directory.CreateDirectory(sandboxDirectory);
+        var gitInitResult = await RunCommand(
+            GitExecutableName,
+            sandboxDirectory,
+            CliCommandTimeout,
+            GitInitArgument,
+            QuietArgument);
+
+        if (gitInitResult.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Failed to initialize git sandbox: {gitInitResult.StandardError}");
+        }
+
+        return sandboxDirectory;
+    }
+
+    private static string ResolveRepositoryRootPath()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, SolutionFileName)))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate repository root from test execution directory.");
+    }
+
+    private static async Task<string?> FindPersistedSessionPathAsync(
+        string workingDirectory,
+        string threadId,
+        TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow <= deadline)
+        {
+            var persistedSessionPath = TryFindPersistedSessionPath(workingDirectory, threadId);
+            if (persistedSessionPath is not null)
+            {
+                return persistedSessionPath;
+            }
+
+            await Task.Delay(PollInterval);
+        }
+
+        return null;
+    }
+
+    private static string? TryFindPersistedSessionPath(string workingDirectory, string threadId)
+    {
+        var projectKey = TryResolveProjectKey(workingDirectory);
+        if (string.IsNullOrWhiteSpace(projectKey))
+        {
+            return null;
+        }
+
+        var geminiHome = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            GeminiDirectoryName);
+        var chatsDirectory = Path.Combine(geminiHome, TmpDirectoryName, projectKey, ChatsDirectoryName);
+        if (!Directory.Exists(chatsDirectory))
+        {
+            return null;
+        }
+
+        foreach (var sessionFile in Directory.EnumerateFiles(chatsDirectory, SessionFileSearchPattern, SearchOption.TopDirectoryOnly))
+        {
+            if (SessionFileMatchesThreadId(sessionFile, threadId))
+            {
+                return sessionFile;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryResolveProjectKey(string workingDirectory)
+    {
+        var projectsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            GeminiDirectoryName,
+            ProjectsFileName);
+        if (!File.Exists(projectsPath))
+        {
+            return null;
+        }
+
+        using var stream = File.OpenRead(projectsPath);
+        using var document = JsonDocument.Parse(stream);
+        if (!document.RootElement.TryGetProperty(ProjectsPropertyName, out var projectsElement)
+            || projectsElement.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var normalizedWorkingDirectory = Path.GetFullPath(workingDirectory);
+        foreach (var project in projectsElement.EnumerateObject())
+        {
+            if (!string.Equals(Path.GetFullPath(project.Name), normalizedWorkingDirectory, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return project.Value.ValueKind == JsonValueKind.String
+                ? project.Value.GetString()
+                : null;
+        }
+
+        return null;
+    }
+
+    private static bool SessionFileMatchesThreadId(string sessionFile, string threadId)
+    {
+        using var stream = File.OpenRead(sessionFile);
+        using var document = JsonDocument.Parse(stream);
+        return document.RootElement.TryGetProperty(SessionIdPropertyName, out var sessionIdElement)
+               && sessionIdElement.ValueKind == JsonValueKind.String
+               && string.Equals(sessionIdElement.GetString(), threadId, StringComparison.Ordinal);
+    }
+
+    private static Task<GeminiCommandResult> RunGeminiAsync(
+        string workingDirectory,
+        TimeSpan timeout,
+        params string[] arguments)
+    {
+        var executablePath = GeminiCliLocator.FindGeminiPath(null);
+        return RunCommand(executablePath, workingDirectory, timeout, arguments);
+    }
+
+    private static async Task<GeminiCommandResult> RunCommand(
+        string executablePath,
+        string workingDirectory,
+        TimeSpan timeout,
+        params string[] arguments)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        var startInfo = new ProcessStartInfo(executablePath)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = workingDirectory,
+        };
+
+        foreach (var argument in arguments)
+        {
+            if (string.IsNullOrWhiteSpace(argument))
+            {
+                continue;
+            }
+
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = new Process { StartInfo = startInfo };
+        try
+        {
+            if (!process.Start())
+            {
+                throw new InvalidOperationException($"Failed to start command '{executablePath}'.");
+            }
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException($"Failed to start command '{executablePath}'.", exception);
+        }
+
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellation.Token);
+        var standardErrorTask = process.StandardError.ReadToEndAsync(cancellation.Token);
+
+        await process.WaitForExitAsync(cancellation.Token);
+
+        return new GeminiCommandResult(
+            process.ExitCode,
+            await standardOutputTask,
+            await standardErrorTask);
+    }
+
+    private sealed record GeminiCommandResult(int ExitCode, string StandardOutput, string StandardError);
 }
