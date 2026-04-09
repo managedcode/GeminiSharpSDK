@@ -10,6 +10,7 @@ public class GeminiClientTests
 {
     private const string ResumeSandboxPrefix = "GeminiClientTests-ResumeThread-";
     private static readonly TimeSpan SandboxCommandTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan MultiTurnTimeout = TimeSpan.FromMinutes(3);
 
     [Test]
     public async Task StartAsync_CanBeCalledConcurrently()
@@ -265,13 +266,13 @@ public class GeminiClientTests
             SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
         var startedThread = client.StartThread(sandbox.CreateThreadOptions(settings.Model, ephemeral: false));
+        using var firstCancellation = new CancellationTokenSource(MultiTurnTimeout);
 
         var firstResult = await startedThread.RunAsync(
             "Reply with short plain text: ok.",
-            new TurnOptions { CancellationToken = cancellation.Token });
+            new TurnOptions { CancellationToken = firstCancellation.Token });
 
         var threadId = startedThread.Id;
         await Assert.That(threadId).IsNotNull();
@@ -280,10 +281,11 @@ public class GeminiClientTests
         var resumedThread = client.ResumeThread(
             threadId!,
             sandbox.CreateThreadOptions(settings.Model, ephemeral: false));
+        using var secondCancellation = new CancellationTokenSource(MultiTurnTimeout);
 
         var secondResult = await resumedThread.RunAsync(
             "Reply with short plain text: ok.",
-            new TurnOptions { CancellationToken = cancellation.Token });
+            new TurnOptions { CancellationToken = secondCancellation.Token });
 
         await Assert.That(secondResult.Usage).IsNotNull();
         await Assert.That(resumedThread.Id).IsEqualTo(threadId);

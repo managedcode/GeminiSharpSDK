@@ -14,6 +14,7 @@ public class GeminiThreadTests
 {
     private const string SandboxPrefix = "GeminiThreadTests";
     private static readonly TimeSpan SandboxCommandTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan MultiTurnTimeout = TimeSpan.FromMinutes(3);
 
     [Test]
     [Property("RequiresGeminiAuth", "true")]
@@ -124,19 +125,20 @@ public class GeminiThreadTests
 
         using var client = RealGeminiTestSupport.CreateClient();
         var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        using var firstCancellation = new CancellationTokenSource(MultiTurnTimeout);
 
         var first = await thread.RunAsync(
             "Reply with short plain text: first.",
-            new TurnOptions { CancellationToken = cancellation.Token });
+            new TurnOptions { CancellationToken = firstCancellation.Token });
 
         var firstThreadId = thread.Id;
         await Assert.That(firstThreadId).IsNotNull();
         await Assert.That(first.Usage).IsNotNull();
 
+        using var secondCancellation = new CancellationTokenSource(MultiTurnTimeout);
         var second = await thread.RunAsync(
             "Reply with short plain text: second.",
-            new TurnOptions { CancellationToken = cancellation.Token });
+            new TurnOptions { CancellationToken = secondCancellation.Token });
 
         await Assert.That(second.Usage).IsNotNull();
         await Assert.That(thread.Id).IsEqualTo(firstThreadId);

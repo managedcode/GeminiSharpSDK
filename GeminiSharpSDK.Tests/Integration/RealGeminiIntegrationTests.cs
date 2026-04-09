@@ -26,6 +26,7 @@ public class RealGeminiIntegrationTests
     private static readonly TimeSpan SessionVisibilityTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan CliCommandTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan MultiTurnTimeout = TimeSpan.FromMinutes(3);
 
     [Test]
     public async Task RunAsync_WithRealGeminiCli_ReturnsStructuredOutput()
@@ -88,25 +89,26 @@ public class RealGeminiIntegrationTests
 
         using var client = RealGeminiTestSupport.CreateClient();
         var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
         var schema = IntegrationOutputSchemas.StatusOnly();
+        using var firstCancellation = new CancellationTokenSource(MultiTurnTimeout);
 
         var first = await thread.RunAsync<StatusResponse>(
             "Reply with a JSON object where status is exactly \"ok\".",
             schema,
             IntegrationOutputJsonContext.Default.StatusResponse,
-            cancellation.Token);
+            firstCancellation.Token);
 
         var firstThreadId = thread.Id;
         await Assert.That(firstThreadId).IsNotNull();
         await Assert.That(first.Usage).IsNotNull();
 
+        using var secondCancellation = new CancellationTokenSource(MultiTurnTimeout);
         var second = await thread.RunAsync<StatusResponse>(
             "Again: reply with a JSON object where status is exactly \"ok\".",
             schema,
             IntegrationOutputJsonContext.Default.StatusResponse,
-            cancellation.Token);
+            secondCancellation.Token);
 
         await Assert.That(second.TypedResponse.Status).IsEqualTo("ok");
         await Assert.That(second.Usage).IsNotNull();

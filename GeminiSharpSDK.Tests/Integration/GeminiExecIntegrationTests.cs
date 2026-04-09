@@ -14,6 +14,7 @@ public class GeminiExecIntegrationTests
     private const string InvalidModel = "__geminisharp_invalid_model__";
     private const string SandboxPrefix = "GeminiExecIntegrationTests";
     private static readonly TimeSpan SandboxCommandTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan MultiTurnTimeout = TimeSpan.FromMinutes(3);
 
     [Test]
     public async Task RunAsync_UsesDefaultProcessRunner_EndToEnd()
@@ -43,21 +44,22 @@ public class GeminiExecIntegrationTests
         using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
         var thread = client.StartThread(sandbox.CreateThreadOptions(settings.Model, ephemeral: false));
+        using var firstCancellation = new CancellationTokenSource(MultiTurnTimeout);
 
         var firstResult = await thread.RunAsync(
             FirstPrompt,
-            new TurnOptions { CancellationToken = cancellation.Token });
+            new TurnOptions { CancellationToken = firstCancellation.Token });
 
         var threadId = thread.Id;
         await Assert.That(threadId).IsNotNull();
         await Assert.That(firstResult.Usage).IsNotNull();
 
+        using var secondCancellation = new CancellationTokenSource(MultiTurnTimeout);
         var secondResult = await thread.RunAsync(
             SecondPrompt,
-            new TurnOptions { CancellationToken = cancellation.Token });
+            new TurnOptions { CancellationToken = secondCancellation.Token });
 
         await Assert.That(secondResult.Usage).IsNotNull();
         await Assert.That(thread.Id).IsEqualTo(threadId);

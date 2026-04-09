@@ -155,6 +155,7 @@ _TeamCity*
 # Visual Studio code coverage results
 *.coverage
 *.coveragexml
+/tests/.sandbox/
 
 # NCrunch
 _NCrunch_*
