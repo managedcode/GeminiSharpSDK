@@ -208,6 +208,7 @@ If no new rule is detected -> do not update the file.
 - Read `AGENTS.md` and relevant docs before editing code.
 - Keep API behavior aligned with actual Gemini CLI contracts first; TypeScript SDK mapping may be used only as an optional historical reference, not as a blocker for C# SDK design.
 - For `ManagedCode.GeminiSharpSDK`, do not import Codex-specific behavior, docs, or assumptions into implementation or tests unless the user explicitly asks for cross-SDK comparison; keep Gemini fixes grounded in real Gemini CLI behavior.
+- Do not involve Copilot-specific workflows, assignments, or assumptions in this repository unless the user explicitly asks for them; handle review and fix work directly in the repo.
 - Maintain GitHub workflow health (`.github/workflows`).
 
 **Ask first:**

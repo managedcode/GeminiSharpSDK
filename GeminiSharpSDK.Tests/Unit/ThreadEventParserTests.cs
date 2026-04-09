@@ -79,6 +79,18 @@ public class ThreadEventParserTests
     }
 
     [Test]
+    public async Task PatchApplyStatus_PublicNumericValues_RemainStable()
+    {
+        var completed = (int)PatchApplyStatus.Completed;
+        var failed = (int)PatchApplyStatus.Failed;
+        var inProgress = (int)PatchApplyStatus.InProgress;
+
+        await Assert.That(completed).IsEqualTo(0);
+        await Assert.That(failed).IsEqualTo(1);
+        await Assert.That(inProgress).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Parse_ThrowsForUnsupportedEventType()
     {
         var action = () => ThreadEventParser.Parse("{\"type\":\"unknown\"}");

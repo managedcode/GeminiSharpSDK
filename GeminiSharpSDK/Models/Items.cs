@@ -25,9 +25,9 @@ public enum PatchChangeKind
 
 public enum PatchApplyStatus
 {
-    InProgress,
-    Completed,
-    Failed,
+    Completed = 0,
+    Failed = 1,
+    InProgress = 2,
 }
 
 public enum McpToolCallStatus
