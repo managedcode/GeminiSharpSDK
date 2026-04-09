@@ -4,19 +4,16 @@ using ManagedCode.GeminiSharpSDK.Client;
 using ManagedCode.GeminiSharpSDK.Internal;
 using ManagedCode.GeminiSharpSDK.Models;
 using ManagedCode.GeminiSharpSDK.Tests.Shared;
+using ManagedCode.GeminiSharpSDK.Tests.TestSupport;
 
 namespace ManagedCode.GeminiSharpSDK.Tests.Integration;
 
 [Property("RequiresGeminiAuth", "true")]
+[ParallelLimiter<GeminiAuthParallelLimit>]
 public class RealGeminiIntegrationTests
 {
-    private const string SolutionFileName = "ManagedCode.GeminiSharpSDK.slnx";
-    private const string TestsDirectoryName = "tests";
-    private const string SandboxDirectoryName = ".sandbox";
-    private const string SandboxPrefix = "RealGeminiIntegrationTests-SessionVisibility-";
-    private const string GitExecutableName = "git";
-    private const string GitInitArgument = "init";
-    private const string QuietArgument = "-q";
+    private const string SandboxPrefix = "RealGeminiIntegrationTests";
+    private const string SessionVisibilitySandboxPrefix = "RealGeminiIntegrationTests-SessionVisibility";
     private const string ListSessionsFlag = "--list-sessions";
     private const string GeminiDirectoryName = ".gemini";
     private const string ProjectsFileName = "projects.json";
@@ -34,9 +31,10 @@ public class RealGeminiIntegrationTests
     public async Task RunAsync_WithRealGeminiCli_ReturnsStructuredOutput()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, CliCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
 
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         var schema = IntegrationOutputSchemas.StatusOnly();
@@ -55,9 +53,10 @@ public class RealGeminiIntegrationTests
     public async Task RunStreamedAsync_WithRealGeminiCli_YieldsCurrentStreamJsonEvents()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, CliCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
         var streamed = await thread.RunStreamedAsync(
@@ -85,9 +84,10 @@ public class RealGeminiIntegrationTests
     public async Task RunAsync_WithRealGeminiCli_SecondTurnKeepsThreadId()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, CliCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
         var schema = IntegrationOutputSchemas.StatusOnly();
@@ -117,99 +117,47 @@ public class RealGeminiIntegrationTests
     public async Task RunAsync_WithFreshWorkingDirectory_PersistsSessionVisibleToGeminiCli()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
-        var sandboxDirectory = await CreateGitSandboxDirectoryAsync();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(
+            SessionVisibilitySandboxPrefix,
+            CliCommandTimeout);
+        var sandboxDirectory = sandbox.WorkingDirectory;
 
-        try
-        {
-            using var client = RealGeminiTestSupport.CreateClient();
-            var thread = client.StartThread(new ThreadOptions
-            {
-                Model = settings.Model,
-                WorkingDirectory = sandboxDirectory,
-                Ephemeral = false,
-            });
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var client = RealGeminiTestSupport.CreateClient();
+        var thread = client.StartThread(sandbox.CreateThreadOptions(settings.Model, ephemeral: false));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
-            var result = await thread.RunAsync(
-                ProjectSessionVisiblePrompt,
-                new TurnOptions { CancellationToken = cancellation.Token });
+        var result = await thread.RunAsync(
+            ProjectSessionVisiblePrompt,
+            new TurnOptions { CancellationToken = cancellation.Token });
 
-            await Assert.That(result.Usage).IsNotNull();
-            await Assert.That(thread.Id).IsNotNull();
+        await Assert.That(result.Usage).IsNotNull();
+        await Assert.That(thread.Id).IsNotNull();
 
-            var persistedSessionPath = await FindPersistedSessionPathAsync(
-                sandboxDirectory,
-                thread.Id!,
-                SessionVisibilityTimeout);
+        var persistedSessionPath = await FindPersistedSessionPathAsync(
+            sandboxDirectory,
+            thread.Id!,
+            SessionVisibilityTimeout);
 
-            await Assert.That(persistedSessionPath).IsNotNull();
+        await Assert.That(persistedSessionPath).IsNotNull();
 
-            var listSessionsResult = await RunGeminiAsync(
-                sandboxDirectory,
-                CliCommandTimeout,
-                ListSessionsFlag);
+        var listSessionsResult = await RunGeminiAsync(
+            sandboxDirectory,
+            CliCommandTimeout,
+            ListSessionsFlag);
 
-            await Assert.That(listSessionsResult.ExitCode).IsEqualTo(0);
-            await Assert.That(string.Concat(listSessionsResult.StandardOutput, listSessionsResult.StandardError))
-                .Contains(thread.Id!);
-        }
-        finally
-        {
-            if (Directory.Exists(sandboxDirectory))
-            {
-                Directory.Delete(sandboxDirectory, recursive: true);
-            }
-        }
+        await Assert.That(listSessionsResult.ExitCode).IsEqualTo(0);
+        await Assert.That(string.Concat(listSessionsResult.StandardOutput, listSessionsResult.StandardError))
+            .Contains(thread.Id!);
     }
 
-    private static GeminiThread StartRealIntegrationThread(GeminiClient client, string model)
+    private static GeminiThread StartRealIntegrationThread(GeminiClient client, string model, string workingDirectory)
     {
         return client.StartThread(new ThreadOptions
         {
             Model = model,
+            WorkingDirectory = workingDirectory,
+            Ephemeral = false,
         });
-    }
-
-    private static async Task<string> CreateGitSandboxDirectoryAsync()
-    {
-        var repositoryRoot = ResolveRepositoryRootPath();
-        var sandboxDirectory = Path.Combine(
-            repositoryRoot,
-            TestsDirectoryName,
-            SandboxDirectoryName,
-            $"{SandboxPrefix}{Guid.NewGuid():N}");
-
-        Directory.CreateDirectory(sandboxDirectory);
-        var gitInitResult = await RunCommand(
-            GitExecutableName,
-            sandboxDirectory,
-            CliCommandTimeout,
-            GitInitArgument,
-            QuietArgument);
-
-        if (gitInitResult.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"Failed to initialize git sandbox: {gitInitResult.StandardError}");
-        }
-
-        return sandboxDirectory;
-    }
-
-    private static string ResolveRepositoryRootPath()
-    {
-        var current = new DirectoryInfo(AppContext.BaseDirectory);
-        while (current is not null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, SolutionFileName)))
-            {
-                return current.FullName;
-            }
-
-            current = current.Parent;
-        }
-
-        throw new InvalidOperationException("Could not locate repository root from test execution directory.");
     }
 
     private static async Task<string?> FindPersistedSessionPathAsync(

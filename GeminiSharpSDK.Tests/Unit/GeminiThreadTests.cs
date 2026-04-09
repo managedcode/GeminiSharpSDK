@@ -6,19 +6,25 @@ using ManagedCode.GeminiSharpSDK.Configuration;
 using ManagedCode.GeminiSharpSDK.Execution;
 using ManagedCode.GeminiSharpSDK.Models;
 using ManagedCode.GeminiSharpSDK.Tests.Shared;
+using ManagedCode.GeminiSharpSDK.Tests.TestSupport;
 
 namespace ManagedCode.GeminiSharpSDK.Tests.Unit;
 
 public class GeminiThreadTests
 {
+    private const string SandboxPrefix = "GeminiThreadTests";
+    private static readonly TimeSpan SandboxCommandTimeout = TimeSpan.FromSeconds(30);
+
     [Test]
     [Property("RequiresGeminiAuth", "true")]
+    [ParallelLimiter<GeminiAuthParallelLimit>]
     public async Task RunAsync_WithRealGeminiCli_ReturnsCompletedTurnAndUpdatesThreadId()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
         var result = await thread.RunAsync(
@@ -32,12 +38,14 @@ public class GeminiThreadTests
 
     [Test]
     [Property("RequiresGeminiAuth", "true")]
+    [ParallelLimiter<GeminiAuthParallelLimit>]
     public async Task RunAsync_WithStructuredInput_ReturnsTypedJson()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
         var schema = IntegrationOutputSchemas.StatusOnly();
@@ -56,12 +64,14 @@ public class GeminiThreadTests
 
     [Test]
     [Property("RequiresGeminiAuth", "true")]
+    [ParallelLimiter<GeminiAuthParallelLimit>]
     public async Task RunAsync_GenericStructuredOutput_ReturnsTypedResponse()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
         var schema = IntegrationOutputSchemas.SummaryAndStatus();
@@ -82,12 +92,14 @@ public class GeminiThreadTests
 
     [Test]
     [Property("RequiresGeminiAuth", "true")]
+    [ParallelLimiter<GeminiAuthParallelLimit>]
     public async Task RunAsync_GenericStructuredOutput_WithSchemaShortcutAndStringInput_ReturnsTypedResponse()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
         var schema = IntegrationOutputSchemas.StatusOnly();
@@ -104,12 +116,14 @@ public class GeminiThreadTests
 
     [Test]
     [Property("RequiresGeminiAuth", "true")]
+    [ParallelLimiter<GeminiAuthParallelLimit>]
     public async Task RunAsync_SecondTurnKeepsThreadId_WithRealGeminiCli()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
         var first = await thread.RunAsync(
@@ -130,12 +144,14 @@ public class GeminiThreadTests
 
     [Test]
     [Property("RequiresGeminiAuth", "true")]
+    [ParallelLimiter<GeminiAuthParallelLimit>]
     public async Task RunStreamedAsync_YieldsCurrentStreamJsonEvents_WithRealGeminiCli()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(SandboxPrefix, SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
-        var thread = StartRealIntegrationThread(client, settings.Model);
+        var thread = StartRealIntegrationThread(client, settings.Model, sandbox.WorkingDirectory);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
         var streamed = await thread.RunStreamedAsync(
@@ -266,11 +282,13 @@ public class GeminiThreadTests
         return Task.CompletedTask;
     }
 
-    private static GeminiThread StartRealIntegrationThread(GeminiClient client, string model)
+    private static GeminiThread StartRealIntegrationThread(GeminiClient client, string model, string workingDirectory)
     {
         return client.StartThread(new ThreadOptions
         {
             Model = model,
+            WorkingDirectory = workingDirectory,
+            Ephemeral = false,
         });
     }
 

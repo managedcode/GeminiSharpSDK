@@ -2,6 +2,7 @@ using ManagedCode.GeminiSharpSDK.Client;
 using ManagedCode.GeminiSharpSDK.Execution;
 using ManagedCode.GeminiSharpSDK.Models;
 using ManagedCode.GeminiSharpSDK.Tests.Shared;
+using ManagedCode.GeminiSharpSDK.Tests.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ManagedCode.GeminiSharpSDK.Tests.Unit;
@@ -151,6 +152,7 @@ public class GeminiExecTests
 
     [Test]
     [Property("RequiresGeminiAuth", "true")]
+    [ParallelLimiter<GeminiAuthParallelLimit>]
     public async Task RunAsync_WithNullLogger_CompletesSuccessfully_WithRealGeminiCli()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();

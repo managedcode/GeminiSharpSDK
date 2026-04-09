@@ -2,11 +2,15 @@ using ManagedCode.GeminiSharpSDK.Client;
 using ManagedCode.GeminiSharpSDK.Configuration;
 using ManagedCode.GeminiSharpSDK.Models;
 using ManagedCode.GeminiSharpSDK.Tests.Shared;
+using ManagedCode.GeminiSharpSDK.Tests.TestSupport;
 
 namespace ManagedCode.GeminiSharpSDK.Tests.Unit;
 
 public class GeminiClientTests
 {
+    private const string ResumeSandboxPrefix = "GeminiClientTests-ResumeThread-";
+    private static readonly TimeSpan SandboxCommandTimeout = TimeSpan.FromSeconds(30);
+
     [Test]
     public async Task StartAsync_CanBeCalledConcurrently()
     {
@@ -252,17 +256,18 @@ public class GeminiClientTests
 
     [Test]
     [Property("RequiresGeminiAuth", "true")]
+    [ParallelLimiter<GeminiAuthParallelLimit>]
     public async Task ResumeThread_WithThreadOptions_RunsWithRealGeminiCli()
     {
         var settings = RealGeminiTestSupport.GetRequiredSettings();
+        using var sandbox = await RealGeminiTestSandbox.CreateAsync(
+            ResumeSandboxPrefix,
+            SandboxCommandTimeout);
 
         using var client = RealGeminiTestSupport.CreateClient();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
-        var startedThread = client.StartThread(new ThreadOptions
-        {
-            Model = settings.Model,
-        });
+        var startedThread = client.StartThread(sandbox.CreateThreadOptions(settings.Model, ephemeral: false));
 
         var firstResult = await startedThread.RunAsync(
             "Reply with short plain text: ok.",
@@ -272,10 +277,9 @@ public class GeminiClientTests
         await Assert.That(threadId).IsNotNull();
         await Assert.That(firstResult.Usage).IsNotNull();
 
-        var resumedThread = client.ResumeThread(threadId!, new ThreadOptions
-        {
-            Model = settings.Model,
-        });
+        var resumedThread = client.ResumeThread(
+            threadId!,
+            sandbox.CreateThreadOptions(settings.Model, ephemeral: false));
 
         var secondResult = await resumedThread.RunAsync(
             "Reply with short plain text: ok.",

@@ -18,6 +18,8 @@ Verify `ManagedCode.GeminiSharpSDK` behavior against real Gemini CLI contracts, 
 - Smoke coverage validates both `gemini --help` and headless `gemini --prompt ... --output-format stream-json`.
 - Cross-platform CI smoke also validates isolated-profile unauthenticated behavior through a headless prompt run, proving binary discovery + process launch without relying on local credentials.
 - Real integration runs must use existing Gemini CLI login/session; test harness does not use API key environment variables.
+- Auth-required real Gemini tests run under a shared parallel limiter so local full-suite execution does not deadlock or stall on concurrent headless CLI sessions.
+- Auth-required real Gemini thread/session tests must also run in unique git sandboxes under `tests/.sandbox/*` so persisted session state and resume behavior stay deterministic across the full suite.
 - Real integration model selection must be explicit: set `GEMINI_TEST_MODEL`, define `model` in `~/.gemini/config.toml`, or rely on a recent local Gemini session that already recorded the active model in the current profile.
 - Cover error paths and cancellation paths.
 - Keep protocol parser coverage for all supported event/item kinds.
