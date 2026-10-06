@@ -67,6 +67,14 @@ jobs:
     - name: Test (full solution)
       run: dotnet test --solution ManagedCode.GeminiSharpSDK.slnx --configuration Release --no-build -- --treenode-filter "/*/*/*/*[RequiresGeminiAuth!=true]"
 
+    - name: Install Native AOT prerequisites
+      run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev libssl-dev libbrotli-dev
+
+    - name: Publish and run Native AOT smoke
+      run: |
+        dotnet publish AotSmoke/ManagedCode.GeminiSharpSDK.AotSmoke.csproj --configuration Release --runtime linux-x64 --output ./AotSmoke/artifacts
+        ./AotSmoke/artifacts/ManagedCode.GeminiSharpSDK.AotSmoke
+
     - name: Gemini CLI smoke tests
       run: dotnet test --project GeminiSharpSDK.Tests/GeminiSharpSDK.Tests.csproj --configuration Release --no-build -- --treenode-filter "/*/*/*/GeminiCli_Smoke_*"
 
