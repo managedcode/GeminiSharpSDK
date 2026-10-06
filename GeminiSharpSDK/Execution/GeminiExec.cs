@@ -27,6 +27,7 @@ public sealed class GeminiExec
     private const string CSharpSdkOriginator = "gemini_sdk_csharp";
     private const string OpenAiBaseUrlEnv = "OPENAI_BASE_URL";
     private const string GeminiApiKeyEnv = "GEMINI_API_KEY";
+    private const string ProcessTerminationTimeoutMustBePositiveMessage = "Process termination timeout must be positive.";
 
     private readonly string _executablePath;
     private readonly IReadOnlyDictionary<string, string>? _environmentOverride;
@@ -65,7 +66,7 @@ public sealed class GeminiExec
         var resolvedTerminationTimeout = processTerminationTimeout ?? GeminiOptions.DefaultProcessTerminationTimeout;
         if (resolvedTerminationTimeout <= TimeSpan.Zero)
         {
-            throw new ArgumentOutOfRangeException(nameof(processTerminationTimeout), resolvedTerminationTimeout, "Process termination timeout must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(processTerminationTimeout), resolvedTerminationTimeout, ProcessTerminationTimeoutMustBePositiveMessage);
         }
 
         _executablePath = GeminiCliLocator.FindGeminiPath(executablePath);

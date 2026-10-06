@@ -17,10 +17,24 @@ public class ProcessRunnerCancellationTests
     private const string WindowsDirectoryVariableName = "WINDIR";
     private const string PathVariableName = "PATH";
     private const string PathExtensionsVariableName = "PATHEXT";
+    private const string TestInput = "test";
+    private const string MissingExecutableNamePrefix = "missing-gemini-cli-";
+    private const string ScriptFileNamePrefix = "gemini-cli-";
+    private const string ShellScriptExtension = ".sh";
+    private const string PosixShellPath = "/bin/sh";
+    private const string PosixShellCommandFlag = "-c";
+    private const string PosixLongRunningCommand = "echo $$; exec /bin/sleep 30";
+    private const string WindowsPowerShellPath = "powershell.exe";
+    private const string PowerShellNoProfileFlag = "-NoProfile";
+    private const string PowerShellNonInteractiveFlag = "-NonInteractive";
+    private const string PowerShellCommandFlag = "-Command";
+    private const string TestsDirectoryName = "tests";
+    private const string SandboxDirectoryName = ".sandbox";
+    private const string FixtureDirectoryName = "ProcessRunnerCancellationTests";
     [Test]
     public async Task PublicExec_PreCanceledTokenDoesNotStartCliProcess()
     {
-        var executablePath = Path.Combine(GetTestSandboxDirectory(), $"missing-gemini-cli-{Guid.NewGuid():N}");
+        var executablePath = Path.Combine(GetTestSandboxDirectory(), $"{MissingExecutableNamePrefix}{Guid.NewGuid():N}");
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         var exec = new GeminiExec(TimeSpan.FromSeconds(5), executablePath, CreateEnvironment());
@@ -29,7 +43,7 @@ public class ProcessRunnerCancellationTests
         {
             await using var enumerator = exec.RunAsync(new GeminiExecArgs
             {
-                Input = "test",
+                Input = TestInput,
                 CancellationToken = cancellation.Token,
             }).GetAsyncEnumerator(cancellation.Token);
 
@@ -55,8 +69,8 @@ public class ProcessRunnerCancellationTests
 
         const int terminationTimeoutMilliseconds = 250;
         var invocation = new GeminiProcessInvocation(
-            "/bin/sh",
-            ["-c", DescendantHoldingStderrScript],
+            PosixShellPath,
+            [PosixShellCommandFlag, DescendantHoldingStderrScript],
             CreateEnvironment(),
             Environment.CurrentDirectory,
             TimeSpan.FromMilliseconds(terminationTimeoutMilliseconds));
@@ -110,7 +124,7 @@ public class ProcessRunnerCancellationTests
         {
             await using var enumerator = exec.RunAsync(new GeminiExecArgs
             {
-                Input = "test",
+                Input = TestInput,
                 CancellationToken = cancellation.Token,
             }).GetAsyncEnumerator(cancellation.Token);
 
@@ -136,8 +150,8 @@ public class ProcessRunnerCancellationTests
     {
         using var cancellation = new CancellationTokenSource();
         var invocation = OperatingSystem.IsWindows()
-            ? new GeminiProcessInvocation("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WindowsLongRunningCommand], CreateWindowsProcessEnvironment(), Environment.CurrentDirectory, TimeSpan.FromSeconds(5))
-            : new GeminiProcessInvocation("/bin/sh", ["-c", "echo $$; exec /bin/sleep 30"], CreateEnvironment(), Environment.CurrentDirectory, TimeSpan.FromSeconds(5));
+            ? new GeminiProcessInvocation(WindowsPowerShellPath, [PowerShellNoProfileFlag, PowerShellNonInteractiveFlag, PowerShellCommandFlag, WindowsLongRunningCommand], CreateWindowsProcessEnvironment(), Environment.CurrentDirectory, TimeSpan.FromSeconds(5))
+            : new GeminiProcessInvocation(PosixShellPath, [PosixShellCommandFlag, PosixLongRunningCommand], CreateEnvironment(), Environment.CurrentDirectory, TimeSpan.FromSeconds(5));
         var runner = new DefaultGeminiProcessRunner();
 
         await using var enumerator = runner.RunAsync(invocation, NullLogger.Instance, cancellation.Token)
@@ -184,7 +198,7 @@ public class ProcessRunnerCancellationTests
 
     private static string CreateLongRunningCliScript()
     {
-        var scriptPath = Path.Combine(GetTestSandboxDirectory(), $"gemini-cli-{Guid.NewGuid():N}.sh");
+        var scriptPath = Path.Combine(GetTestSandboxDirectory(), $"{ScriptFileNamePrefix}{Guid.NewGuid():N}{ShellScriptExtension}");
         File.WriteAllText(scriptPath, LongRunningScript);
         if (!OperatingSystem.IsWindows())
         {
@@ -195,7 +209,7 @@ public class ProcessRunnerCancellationTests
 
     private static string GetTestSandboxDirectory()
     {
-        var path = Path.Combine(Environment.CurrentDirectory, "tests", ".sandbox", "ProcessRunnerCancellationTests");
+        var path = Path.Combine(Environment.CurrentDirectory, TestsDirectoryName, SandboxDirectoryName, FixtureDirectoryName);
         Directory.CreateDirectory(path);
         return path;
     }
