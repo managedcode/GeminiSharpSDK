@@ -12,6 +12,11 @@ public class ProcessRunnerCancellationTests
     private const string PosixFixtureSkipReason = "The public CLI yield-boundary fixture currently uses a POSIX executable script.";
     private const string LinuxFixtureSkipReason = "The detached stderr-retention fixture requires Linux setsid.";
     private const string StderrClosureFailure = "stderr stream closed";
+    private const string WindowsLongRunningCommand = "Write-Output $PID; Start-Sleep -Seconds 30";
+    private const string SystemRootVariableName = "SystemRoot";
+    private const string WindowsDirectoryVariableName = "WINDIR";
+    private const string PathVariableName = "PATH";
+    private const string PathExtensionsVariableName = "PATHEXT";
     [Test]
     public async Task PublicExec_PreCanceledTokenDoesNotStartCliProcess()
     {
@@ -131,7 +136,7 @@ public class ProcessRunnerCancellationTests
     {
         using var cancellation = new CancellationTokenSource();
         var invocation = OperatingSystem.IsWindows()
-            ? new GeminiProcessInvocation("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Write-Output $PID; Start-Sleep -Seconds 30"], CreateEnvironment(), Environment.CurrentDirectory, TimeSpan.FromSeconds(5))
+            ? new GeminiProcessInvocation("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WindowsLongRunningCommand], CreateWindowsProcessEnvironment(), Environment.CurrentDirectory, TimeSpan.FromSeconds(5))
             : new GeminiProcessInvocation("/bin/sh", ["-c", "echo $$; exec /bin/sleep 30"], CreateEnvironment(), Environment.CurrentDirectory, TimeSpan.FromSeconds(5));
         var runner = new DefaultGeminiProcessRunner();
 
@@ -154,6 +159,27 @@ public class ProcessRunnerCancellationTests
     private static Dictionary<string, string> CreateEnvironment()
     {
         return new Dictionary<string, string>(StringComparer.Ordinal);
+    }
+
+    private static Dictionary<string, string> CreateWindowsProcessEnvironment()
+    {
+        var environment = CreateEnvironment();
+        foreach (var variableName in new[]
+        {
+            SystemRootVariableName,
+            WindowsDirectoryVariableName,
+            PathVariableName,
+            PathExtensionsVariableName,
+        })
+        {
+            var value = Environment.GetEnvironmentVariable(variableName);
+            if (!string.IsNullOrEmpty(value))
+            {
+                environment[variableName] = value;
+            }
+        }
+
+        return environment;
     }
 
     private static string CreateLongRunningCliScript()
