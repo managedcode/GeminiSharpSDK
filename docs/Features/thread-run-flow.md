@@ -81,6 +81,8 @@ Provide deterministic thread-based execution over Gemini CLI so C# consumers can
 - Malformed JSON line -> `InvalidOperationException` with raw line context
 - `result` event with `status=error` -> `ThreadRunException`
 - cancellation token triggered -> execution interrupted and surfaced to caller
+- Cancellation requests kill the CLI process tree and await confirmation that the root CLI process exited and stderr closed, bounded by `GeminiOptions.ProcessTerminationTimeout` (five seconds by default). If either condition cannot be confirmed, the SDK surfaces a failure instead of returning cancellation. A detached descendant that retains stderr can therefore turn a cancellation into a bounded failure. Effects already sent to external systems remain outside this process guarantee.
+- Cancellation requests kill the CLI process tree and await confirmation that the root CLI process exited, bounded by a timeout; if exit cannot be confirmed, the SDK surfaces a failure instead of returning cancellation. Detached descendants and effects already sent to external systems remain outside that process-termination guarantee.
 
 ---
 

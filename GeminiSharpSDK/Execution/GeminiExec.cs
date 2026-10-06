@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using ManagedCode.GeminiSharpSDK.Client;
+using ManagedCode.GeminiSharpSDK.Configuration;
 using ManagedCode.GeminiSharpSDK.Internal;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -32,13 +33,24 @@ public sealed class GeminiExec
     private readonly JsonObject? _configOverrides;
     private readonly IGeminiProcessRunner _processRunner;
     private readonly ILogger _logger;
+    private readonly TimeSpan _processTerminationTimeout;
 
     public GeminiExec(
         string? executablePath = null,
         IReadOnlyDictionary<string, string>? environmentOverride = null,
         JsonObject? configOverrides = null,
         ILogger? logger = null)
-        : this(executablePath, environmentOverride, configOverrides, null, logger)
+        : this(executablePath, environmentOverride, configOverrides, null, logger, GeminiOptions.DefaultProcessTerminationTimeout)
+    {
+    }
+
+    public GeminiExec(
+        TimeSpan processTerminationTimeout,
+        string? executablePath = null,
+        IReadOnlyDictionary<string, string>? environmentOverride = null,
+        JsonObject? configOverrides = null,
+        ILogger? logger = null)
+        : this(executablePath, environmentOverride, configOverrides, null, logger, processTerminationTimeout)
     {
     }
 
@@ -47,13 +59,21 @@ public sealed class GeminiExec
         IReadOnlyDictionary<string, string>? environmentOverride,
         JsonObject? configOverrides,
         IGeminiProcessRunner? processRunner,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        TimeSpan? processTerminationTimeout = null)
     {
+        var resolvedTerminationTimeout = processTerminationTimeout ?? GeminiOptions.DefaultProcessTerminationTimeout;
+        if (resolvedTerminationTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(processTerminationTimeout), resolvedTerminationTimeout, "Process termination timeout must be positive.");
+        }
+
         _executablePath = GeminiCliLocator.FindGeminiPath(executablePath);
         _environmentOverride = environmentOverride;
         _configOverrides = configOverrides;
         _processRunner = processRunner ?? new DefaultGeminiProcessRunner();
         _logger = logger ?? NullLogger.Instance;
+        _processTerminationTimeout = resolvedTerminationTimeout;
     }
 
     public IAsyncEnumerable<string> RunAsync(GeminiExecArgs args)
@@ -62,7 +82,12 @@ public sealed class GeminiExec
 
         var commandArgs = BuildCommandArgs(args);
         var environment = BuildEnvironment(args.BaseUrl, args.ApiKey);
-        var invocation = new GeminiProcessInvocation(_executablePath, commandArgs, environment, args.WorkingDirectory);
+        var invocation = new GeminiProcessInvocation(
+            _executablePath,
+            commandArgs,
+            environment,
+            args.WorkingDirectory,
+            _processTerminationTimeout);
 
         return RunWithDiagnosticsAsync(invocation, args.CancellationToken);
     }
@@ -73,6 +98,12 @@ public sealed class GeminiExec
     {
         Logging.GeminiExecLog.Starting(_logger, invocation.ExecutablePath, invocation.Arguments.Count);
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            Logging.GeminiExecLog.Cancelled(_logger);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
         var lineCount = 0;
 
         IAsyncEnumerator<string> enumerator;
@@ -82,20 +113,20 @@ public sealed class GeminiExec
                 .RunAsync(invocation, _logger, cancellationToken)
                 .GetAsyncEnumerator(cancellationToken);
         }
-        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            Logging.GeminiExecLog.Cancelled(_logger, exception);
+            Logging.GeminiExecLog.Cancelled(_logger);
             throw;
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            Logging.GeminiExecLog.Failed(_logger, exception);
+            Logging.GeminiExecLog.Failed(_logger);
             throw;
         }
 
         await using (enumerator)
         {
-            while (!cancellationToken.IsCancellationRequested)
+            while (true)
             {
                 string line;
                 try
@@ -107,14 +138,14 @@ public sealed class GeminiExec
 
                     line = enumerator.Current;
                 }
-                catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    Logging.GeminiExecLog.Cancelled(_logger, exception);
+                    Logging.GeminiExecLog.Cancelled(_logger);
                     throw;
                 }
-                catch (Exception exception)
+                catch (Exception)
                 {
-                    Logging.GeminiExecLog.Failed(_logger, exception);
+                    Logging.GeminiExecLog.Failed(_logger);
                     throw;
                 }
 
@@ -289,7 +320,8 @@ internal sealed record GeminiProcessInvocation(
     string ExecutablePath,
     IReadOnlyList<string> Arguments,
     IReadOnlyDictionary<string, string> Environment,
-    string? WorkingDirectory);
+    string? WorkingDirectory,
+    TimeSpan ProcessTerminationTimeout);
 
 internal interface IGeminiProcessRunner
 {
@@ -301,6 +333,9 @@ internal interface IGeminiProcessRunner
 
 internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
 {
+    private const string ProcessTerminationUnconfirmedMessage = "Could not confirm that the Gemini CLI process exited after termination was requested.";
+    private const string StderrTerminationUnconfirmedMessage = "Could not confirm that the Gemini CLI stderr stream closed within the configured process termination timeout.";
+
     public async IAsyncEnumerable<string> RunAsync(
         GeminiProcessInvocation invocation,
         ILogger logger,
@@ -332,6 +367,8 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
         }
 
         using var process = new Process { StartInfo = startInfo };
+        Task<string>? standardErrorTask = null;
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             if (!process.Start())
@@ -346,13 +383,22 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
 
         try
         {
+            standardErrorTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
             process.StandardInput.Close();
-
-            var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                var line = await process.StandardOutput.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                string? line;
+                try
+                {
+                    line = await process.StandardOutput.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    await ThrowIfExitedWithFailureAsync(process, standardErrorTask, invocation.ProcessTerminationTimeout).ConfigureAwait(false);
+                    throw;
+                }
+
                 if (line is null)
                 {
                     break;
@@ -361,8 +407,17 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                 yield return line;
             }
 
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-            var standardError = await standardErrorTask.ConfigureAwait(false);
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await ThrowIfExitedWithFailureAsync(process, standardErrorTask, invocation.ProcessTerminationTimeout).ConfigureAwait(false);
+                throw;
+            }
+
+            var standardError = await ReadStandardErrorAsync(standardErrorTask, invocation.ProcessTerminationTimeout).ConfigureAwait(false);
             if (process.ExitCode != 0)
             {
                 throw new InvalidOperationException($"Gemini Exec exited with code {process.ExitCode}: {standardError}");
@@ -370,22 +425,71 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
         }
         finally
         {
-            TryKillProcess(process, invocation.ExecutablePath, logger);
+            await EnsureProcessStoppedAsync(process, invocation.ExecutablePath, invocation.ProcessTerminationTimeout, logger).ConfigureAwait(false);
+            if (standardErrorTask is not null)
+            {
+                await ReadStandardErrorAsync(standardErrorTask, invocation.ProcessTerminationTimeout).ConfigureAwait(false);
+            }
         }
     }
 
-    private static void TryKillProcess(Process process, string executablePath, ILogger logger)
+    private static async Task ThrowIfExitedWithFailureAsync(
+        Process process,
+        Task<string> standardErrorTask,
+        TimeSpan processTerminationTimeout)
+    {
+        if (!process.HasExited || process.ExitCode == 0)
+        {
+            return;
+        }
+
+        var standardError = await ReadStandardErrorAsync(standardErrorTask, processTerminationTimeout).ConfigureAwait(false);
+        throw new InvalidOperationException($"Gemini Exec exited with code {process.ExitCode}: {standardError}");
+    }
+
+    private static async Task<string> ReadStandardErrorAsync(Task<string> standardErrorTask, TimeSpan timeout)
     {
         try
         {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
+            return await standardErrorTask.WaitAsync(timeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new InvalidOperationException(StderrTerminationUnconfirmedMessage, exception);
+        }
+    }
+
+    private static async Task EnsureProcessStoppedAsync(
+        Process process,
+        string executablePath,
+        TimeSpan processTerminationTimeout,
+        ILogger logger)
+    {
+        if (process.HasExited)
+        {
+            return;
+        }
+
+        Exception? killException = null;
+        try
+        {
+            process.Kill(entireProcessTree: true);
         }
         catch (Exception exception)
         {
-            Logging.GeminiExecLog.ProcessKillFailed(logger, executablePath, exception);
+            Logging.GeminiExecLog.ProcessKillFailed(logger, executablePath);
+            killException = exception;
+        }
+
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(processTerminationTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            Exception failure = killException is null ? exception : new AggregateException(killException, exception);
+            Logging.GeminiExecLog.ProcessKillFailed(logger, executablePath);
+            throw new InvalidOperationException(ProcessTerminationUnconfirmedMessage, failure);
         }
     }
 }

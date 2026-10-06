@@ -13,11 +13,7 @@ public sealed class GeminiChatClient : IChatClient
     public GeminiChatClient(GeminiChatClientOptions? options = null)
     {
         _options = options ?? new GeminiChatClientOptions();
-        _client = new GeminiClient(new GeminiClientOptions
-        {
-            GeminiOptions = _options.GeminiOptions,
-            AutoStart = true,
-        });
+        _client = new GeminiClient(CreateCoreClientOptions(_options));
     }
 
     public async Task<ChatResponse> GetResponseAsync(
@@ -94,6 +90,16 @@ public sealed class GeminiChatClient : IChatClient
         }
 
         return null;
+    }
+
+    internal static GeminiClientOptions CreateCoreClientOptions(GeminiChatClientOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return new GeminiClientOptions
+        {
+            GeminiOptions = options.GeminiOptions,
+            AutoStart = true,
+        };
     }
 
     public void Dispose() => _client.Dispose();

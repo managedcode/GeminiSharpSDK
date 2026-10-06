@@ -1,3 +1,4 @@
+using ManagedCode.GeminiSharpSDK.Configuration;
 using ManagedCode.GeminiSharpSDK.Extensions.AI.Extensions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +8,20 @@ namespace ManagedCode.GeminiSharpSDK.Extensions.AI.Tests;
 public class GeminiServiceCollectionExtensionsTests
 {
     private const string ConfiguredDefaultModel = "configured-default-model";
+
+    [Test]
+    public async Task CreateCoreClientOptions_PropagatesProcessTerminationTimeout()
+    {
+        var geminiOptions = new GeminiOptions { ProcessTerminationTimeout = TimeSpan.FromSeconds(7) };
+
+        var coreOptions = GeminiChatClient.CreateCoreClientOptions(new GeminiChatClientOptions
+        {
+            GeminiOptions = geminiOptions,
+        });
+
+        await Assert.That(coreOptions.GeminiOptions).IsSameReferenceAs(geminiOptions);
+        await Assert.That(coreOptions.GeminiOptions!.ProcessTerminationTimeout).IsEqualTo(TimeSpan.FromSeconds(7));
+    }
 
     [Test]
     public async Task AddGeminiChatClient_RegistersIChatClient()

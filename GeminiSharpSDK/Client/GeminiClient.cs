@@ -78,6 +78,7 @@ public sealed class GeminiClient : IDisposable
     private GeminiExec CreateExec()
     {
         return new GeminiExec(
+            _options.ProcessTerminationTimeout,
             _options.GeminiExecutablePath,
             _options.EnvironmentVariables,
             _options.Config,
