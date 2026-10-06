@@ -44,10 +44,10 @@ using ManagedCode.GeminiSharpSDK;
 
 using var client = new GeminiClient();
 
-var thread = client.StartThread(new ThreadOptions
-{
-    Model = GeminiModels.Gemini25Pro,
-});
+    var thread = client.StartThread(new ThreadOptions
+    {
+        Model = GeminiModels.Gemini35Flash,
+    });
 
 var turn = await thread.RunAsync("Diagnose failing tests and propose a fix");
 

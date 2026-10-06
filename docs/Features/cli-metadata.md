@@ -16,6 +16,8 @@ Expose runtime Gemini CLI metadata to SDK consumers:
 - local model catalog currently cached by Gemini CLI
 - update availability status vs latest published npm `/gemini-cli` version
 
+The public `GeminiModels` constants track model IDs in the bundled official Gemini CLI catalog. They include the stable `gemini-3.5-flash` and `gemini-3.1-flash-lite` choices, the newer access-gated `gemini-3.8-flash` and `gemini-3.5-flash-lite` choices, preview models, and the CLI's supported Gemma 4 IDs. Availability of gated or preview IDs still depends on the user's Gemini CLI account and configuration.
+
 ---
 
 ## Scope

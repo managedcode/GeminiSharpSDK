@@ -44,7 +44,7 @@ internal static class ThreadEventParser
             GeminiProtocolConstants.EventTypes.ItemUpdated => new ItemUpdatedEvent(ParseItem(GetRequiredProperty(root, GeminiProtocolConstants.Properties.Item))),
             GeminiProtocolConstants.EventTypes.ItemCompleted => new ItemCompletedEvent(ParseItem(GetRequiredProperty(root, GeminiProtocolConstants.Properties.Item))),
             GeminiProtocolConstants.EventTypes.Error => new ThreadErrorEvent(GetRequiredString(root, GeminiProtocolConstants.Properties.Message)),
-            _ => throw new InvalidOperationException($"Unsupported thread event type: {type}"),
+            _ => new UnknownThreadEvent(type, JsonNode.Parse(root.GetRawText())!),
         };
     }
 
@@ -162,7 +162,10 @@ internal static class ThreadEventParser
                 GetRequiredString(itemElement, GeminiProtocolConstants.Properties.Id),
                 GetRequiredString(itemElement, GeminiProtocolConstants.Properties.Message)),
 
-            _ => throw new InvalidOperationException($"Unsupported thread item type: {itemType}"),
+            _ => new UnknownThreadItem(
+                GetOptionalString(itemElement, GeminiProtocolConstants.Properties.Id) ?? string.Empty,
+                itemType,
+                JsonNode.Parse(itemElement.GetRawText())!),
         };
     }
 

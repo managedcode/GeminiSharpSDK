@@ -47,3 +47,5 @@ public sealed record ItemCompletedEvent(ThreadItem Item)
 
 public sealed record ThreadErrorEvent(string Message)
     : ThreadEvent(GeminiProtocolConstants.EventTypes.Error);
+
+public sealed record UnknownThreadEvent(string EventType, JsonNode Payload) : ThreadEvent(EventType);

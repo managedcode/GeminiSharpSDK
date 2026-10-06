@@ -74,6 +74,8 @@ public sealed record CollabAgentState(CollabAgentStatus Status, string? Message)
 
 public abstract record ThreadItem(string Id, string Type);
 
+public sealed record UnknownThreadItem(string Id, string ItemType, JsonNode Payload) : ThreadItem(Id, ItemType);
+
 public sealed record ToolUseItem(string Id, string ToolName, JsonNode? Parameters)
     : ThreadItem(Id, GeminiProtocolConstants.ItemTypes.ToolUse);
 
