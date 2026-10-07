@@ -5,6 +5,7 @@ namespace ManagedCode.GeminiSharpSDK.Extensions.AI.Internal;
 
 internal static class ChatOptionsMapper
 {
+    private const string GenerationOptionsUnsupportedMessage = "The Gemini CLI adapter does not support the requested MEAI generation options.";
     private const string FunctionToolsUnsupportedMessage = "MEAI function tools are not supported by the Gemini CLI adapter.";
     private const string ToolModeUnsupportedMessage = "Only automatic MEAI tool mode is supported by the Gemini CLI adapter.";
     internal const string SandboxModeKey = "gemini:sandbox_mode";
@@ -17,6 +18,17 @@ internal static class ChatOptionsMapper
     internal const string EphemeralKey = "gemini:ephemeral";
     internal const string ProfileKey = "gemini:profile";
     internal const string SkipGitRepoCheckKey = "gemini:skip_git_repo_check";
+
+    internal static void ValidateGenerationOptions(ChatOptions? options)
+    {
+        if (options is { Temperature: not null } or { TopP: not null } or { TopK: not null } or
+            { MaxOutputTokens: not null } or { Seed: not null } or { FrequencyPenalty: not null } or
+            { PresencePenalty: not null } || options?.StopSequences is { Count: > 0 } ||
+            options?.ResponseFormat is { } format && format is not ChatResponseFormatText)
+        {
+            throw new NotSupportedException(GenerationOptionsUnsupportedMessage);
+        }
+    }
 
     internal static void ValidateFunctionCallingOptions(ChatOptions? chatOptions)
     {

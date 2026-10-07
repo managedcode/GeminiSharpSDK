@@ -24,8 +24,9 @@ public sealed class GeminiChatClient : IChatClient
     {
         ArgumentNullException.ThrowIfNull(messages);
         ChatOptionsMapper.ValidateFunctionCallingOptions(options);
+        ChatOptionsMapper.ValidateGenerationOptions(options);
 
-        var (prompt, imageContents) = ChatMessageMapper.ToGeminiInput(messages);
+        var (prompt, imageContents) = ChatMessageMapper.ToGeminiInput(messages, options?.Instructions);
         var threadOptions = ChatOptionsMapper.ToThreadOptions(options, _options);
         var turnOptions = ChatOptionsMapper.ToTurnOptions(options, cancellationToken);
 
@@ -48,8 +49,9 @@ public sealed class GeminiChatClient : IChatClient
     {
         ArgumentNullException.ThrowIfNull(messages);
         ChatOptionsMapper.ValidateFunctionCallingOptions(options);
+        ChatOptionsMapper.ValidateGenerationOptions(options);
 
-        var (prompt, imageContents) = ChatMessageMapper.ToGeminiInput(messages);
+        var (prompt, imageContents) = ChatMessageMapper.ToGeminiInput(messages, options?.Instructions);
         var threadOptions = ChatOptionsMapper.ToThreadOptions(options, _options);
         var turnOptions = ChatOptionsMapper.ToTurnOptions(options, cancellationToken);
 
