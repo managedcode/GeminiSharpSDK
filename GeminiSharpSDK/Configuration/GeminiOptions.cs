@@ -21,6 +21,9 @@ public sealed record GeminiOptions
 
     public string? GeminiExecutablePath { get; init; }
 
+    /// <summary>Uses a previously verified SDK launch descriptor, such as the result of CLI installation.</summary>
+    public ManagedCode.GeminiSharpSDK.Models.CliLaunchCommand? LaunchCommand { get; init; }
+
     public string? BaseUrl { get; init; }
 
     public string? ApiKey { get; init; }
@@ -49,7 +52,8 @@ public sealed record GeminiOptions
     public ManagedCode.GeminiSharpSDK.Models.CliLaunchCommand GetCliLaunchCommand()
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(CliMetadataMaximumFileCharacters);
-        return CliLaunchCommandResolver.Resolve(GeminiExecutablePath, GetEffectivePath(), CliMetadataMaximumFileCharacters);
+        return LaunchCommand ?? CliLaunchCommandResolver.Resolve(
+            GeminiExecutablePath, GetEffectivePath(), CliMetadataMaximumFileCharacters);
     }
 
     internal string? GetEffectivePath()

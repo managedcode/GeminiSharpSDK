@@ -34,6 +34,13 @@ public sealed class GeminiClient : IDisposable
     /// <summary>Gets the resolved executable and literal prefix arguments for the configured Gemini CLI.</summary>
     public ManagedCode.GeminiSharpSDK.Models.CliLaunchCommand GetCliLaunchCommand() => _options.GetCliLaunchCommand();
 
+    /// <summary>Installs or updates Gemini CLI in its SDK-owned isolated root at the exact compatibility target.</summary>
+    public IAsyncEnumerable<ManagedCode.GeminiSharpSDK.Models.CliInstallationUpdate> InstallOrUpdateCliAsync(
+        ManagedCode.GeminiSharpSDK.Models.CliInstallationOptions installationOptions,
+        CancellationToken cancellationToken = default) =>
+        GeminiCliInstallation.InstallOrUpdateAsync(installationOptions,
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), cancellationToken);
+
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
