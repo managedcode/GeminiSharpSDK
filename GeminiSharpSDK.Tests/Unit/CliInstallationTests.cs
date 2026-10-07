@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using ManagedCode.GeminiSharpSDK.Configuration;
 using ManagedCode.GeminiSharpSDK.Extensions.AI;
 using ManagedCode.GeminiSharpSDK.Internal;
@@ -84,19 +85,26 @@ public sealed class CliInstallationTests
         fs.writeFileSync(shimPath, shim);
         if (process.platform !== 'win32') fs.chmodSync(shimPath, 0o755);
         if (fs.existsSync(path.join(__dirname, 'pipe-holder'))) {
-            const { spawnSync } = require('node:child_process');
-            const shellCommand = `setsid /bin/sh -c 'echo $$ > ${shellQuote(path.join(__dirname, 'pipe-holder.pid'))}; exec /bin/sleep 60' holder &`;
-            spawnSync('/bin/sh', ['-c', shellCommand], { stdio: 'inherit' });
+            const { spawn } = require('node:child_process');
+            const childScript = 'printf "%s" "$$" > "$1.tmp" && mv "$1.tmp" "$1" && exec /bin/sleep 60';
+            const holder = spawn('setsid', ['/bin/sh', '-c', childScript, 'holder',
+                path.join(__dirname, 'pipe-holder.pid')], { detached: true, stdio: 'inherit' });
+            holder.unref();
+        }
+        function writeProcessId(filePath) {
+            const temporaryPath = filePath + '.tmp';
+            fs.writeFileSync(temporaryPath, String(process.pid));
+            fs.renameSync(temporaryPath, filePath);
         }
         if (fs.existsSync(path.join(__dirname, 'hang'))) {
-            fs.writeFileSync(path.join(__dirname, 'child.pid'), String(process.pid));
+            writeProcessId(path.join(__dirname, 'child.pid'));
             setInterval(() => {}, 1000);
         }
         if (fs.existsSync(path.join(__dirname, 'overflow'))) {
             process.stdout.write('x'.repeat(8192));
             setInterval(() => {}, 1000);
         }
-        fs.writeFileSync(path.join(__dirname, 'child.pid'), String(process.pid));
+        writeProcessId(path.join(__dirname, 'child.pid'));
         console.log('installation output');
         console.error('installation diagnostics');
         """;
@@ -178,9 +186,7 @@ public sealed class CliInstallationTests
             await Assert.That(updates.Current.Stage).IsEqualTo(CliInstallationStage.PackageManagerStarted);
             var childPidPath = Path.Combine(fixture.NpmRoot, BinDirectoryName, ChildPidFileName);
             using var markerTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            await WaitForFileAsync(childPidPath, markerTimeout.Token);
-            var childPid = int.Parse(await File.ReadAllTextAsync(childPidPath),
-                System.Globalization.CultureInfo.InvariantCulture);
+            var childPid = await WaitForProcessIdAsync(childPidPath, markerTimeout.Token);
             await WaitForProcessExitAsync(childPid, markerTimeout.Token);
 
             var sawFinalOutput = false;
@@ -215,26 +221,44 @@ public sealed class CliInstallationTests
                 InstallTimeout = TimeSpan.FromSeconds(1),
                 ProcessTerminationTimeout = TimeSpan.FromSeconds(1)
             };
-            await using var updates = GeminiCliInstallation.InstallOrUpdateAsync(options,
+            var updates = GeminiCliInstallation.InstallOrUpdateAsync(options,
                 fixture.LocalApplicationDataRoot, CancellationToken.None).GetAsyncEnumerator();
-            await Assert.That(await updates.MoveNextAsync()).IsTrue();
-            await Assert.That(updates.Current.Stage).IsEqualTo(CliInstallationStage.PackageManagerStarted);
-
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            await WaitForFileAsync(childPidPath, deadline.Token);
-            var childPid = int.Parse(await File.ReadAllTextAsync(childPidPath),
-                System.Globalization.CultureInfo.InvariantCulture);
-            await WaitForProcessExitAsync(childPid, deadline.Token);
-            await Assert.That(IsProcessRunning(childPid)).IsFalse();
-
-            var exception = await Assert.That(async () =>
+            Exception? primaryFailure = null;
+            Exception? disposalFailure = null;
+            try
             {
-                while (await updates.MoveNextAsync())
+                await Assert.That(await updates.MoveNextAsync()).IsTrue();
+                await Assert.That(updates.Current.Stage).IsEqualTo(CliInstallationStage.PackageManagerStarted);
+
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var childPid = await WaitForProcessIdAsync(childPidPath, deadline.Token);
+                await WaitForProcessExitAsync(childPid, deadline.Token);
+                await Assert.That(IsProcessRunning(childPid)).IsFalse();
+
+                var exception = await Assert.That(async () =>
                 {
-                }
-            }).ThrowsException();
-            await Assert.That(exception).IsTypeOf<TimeoutException>();
-            await Assert.That(exception!.Message).IsEqualTo(TimeoutMessage);
+                    while (await updates.MoveNextAsync())
+                    {
+                    }
+                }).ThrowsException();
+                await Assert.That(exception).IsTypeOf<TimeoutException>();
+                await Assert.That(exception!.Message).IsEqualTo(TimeoutMessage);
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = exception;
+            }
+
+            try
+            {
+                await updates.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                disposalFailure = exception;
+            }
+
+            RethrowFailures(primaryFailure, disposalFailure);
         }
         finally
         {
@@ -268,12 +292,8 @@ public sealed class CliInstallationTests
                 fixture.LocalApplicationDataRoot, CancellationToken.None).GetAsyncEnumerator();
             await Assert.That(await updates.MoveNextAsync()).IsTrue();
             using var markerTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            await WaitForFileAsync(rootPidFile, markerTimeout.Token);
-            await WaitForFileAsync(holderPidFile, markerTimeout.Token);
-            var rootPid = int.Parse(await File.ReadAllTextAsync(rootPidFile),
-                System.Globalization.CultureInfo.InvariantCulture);
-            holderPid = int.Parse(await File.ReadAllTextAsync(holderPidFile),
-                System.Globalization.CultureInfo.InvariantCulture);
+            var rootPid = await WaitForProcessIdAsync(rootPidFile, markerTimeout.Token);
+            holderPid = await WaitForProcessIdAsync(holderPidFile, markerTimeout.Token);
             await WaitForProcessExitAsync(rootPid, markerTimeout.Token);
             await Assert.That(IsProcessRunning(rootPid)).IsFalse();
             await Assert.That(IsProcessRunning(holderPid)).IsTrue();
@@ -352,7 +372,7 @@ public sealed class CliInstallationTests
                 await Task.Delay(TimeSpan.FromMilliseconds(10), markerTimeout.Token);
             }
 
-            var childPid = int.Parse(await File.ReadAllTextAsync(childPidPath), System.Globalization.CultureInfo.InvariantCulture);
+            var childPid = await WaitForProcessIdAsync(childPidPath, markerTimeout.Token);
             var competingOptions = fixture.Options with { InstallationLockTimeout = TimeSpan.FromMilliseconds(100) };
             var lockException = await Assert.That(async () =>
                 await RunInstallationAsync(fixture, competingOptions)).ThrowsException();
@@ -405,12 +425,8 @@ public sealed class CliInstallationTests
                 fixture.LocalApplicationDataRoot, cancellation.Token).GetAsyncEnumerator();
             await Assert.That(await updates.MoveNextAsync()).IsTrue();
             using var markerTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            await WaitForFileAsync(packageManagerPidFile, markerTimeout.Token);
-            await WaitForFileAsync(holderPidFile, markerTimeout.Token);
-            var packageManagerPid = int.Parse(await File.ReadAllTextAsync(packageManagerPidFile),
-                System.Globalization.CultureInfo.InvariantCulture);
-            holderProcessId = int.Parse(await File.ReadAllTextAsync(holderPidFile),
-                System.Globalization.CultureInfo.InvariantCulture);
+            var packageManagerPid = await WaitForProcessIdAsync(packageManagerPidFile, markerTimeout.Token);
+            holderProcessId = await WaitForProcessIdAsync(holderPidFile, markerTimeout.Token);
             await Assert.That(IsProcessRunning(packageManagerPid)).IsTrue();
             await Assert.That(IsProcessRunning(holderProcessId)).IsTrue();
 
@@ -512,11 +528,39 @@ public sealed class CliInstallationTests
         return Path.GetFullPath(executable ?? throw new InvalidOperationException(SetsidRequiredMessage));
     }
 
-    private static async Task WaitForFileAsync(string path, CancellationToken cancellationToken)
+    private static async Task<int> WaitForProcessIdAsync(string path, CancellationToken cancellationToken)
     {
-        while (!File.Exists(path))
+        while (true)
         {
+            if (File.Exists(path))
+            {
+                var contents = await File.ReadAllTextAsync(path, cancellationToken);
+                if (int.TryParse(contents, System.Globalization.CultureInfo.InvariantCulture, out var processId) &&
+                    processId > 0)
+                {
+                    return processId;
+                }
+            }
+
             await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        }
+    }
+
+    private static void RethrowFailures(Exception? primaryFailure, Exception? disposalFailure)
+    {
+        if (primaryFailure is not null && disposalFailure is not null)
+        {
+            throw new AggregateException(primaryFailure, disposalFailure);
+        }
+
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+        }
+
+        if (disposalFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(disposalFailure).Throw();
         }
     }
 
