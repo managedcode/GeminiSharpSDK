@@ -276,6 +276,7 @@ public class GeminiClientTests
                 EnvironmentVariables = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [PathEnvironmentVariable] = Environment.GetEnvironmentVariable(PathEnvironmentVariable) ?? string.Empty,
+                    [SystemRootEnvironmentVariable] = Environment.GetEnvironmentVariable(SystemRootEnvironmentVariable) ?? string.Empty,
                     [GeminiCliHomeEnvironmentVariable] = cliHome,
                 },
                 InheritEnvironmentVariables = false,
