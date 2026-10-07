@@ -71,6 +71,14 @@ public sealed class CliInstallationTests
         const root = args[prefixIndex + 1];
         const packageSpec = args.at(-1);
         const version = packageSpec.slice(packageSpec.lastIndexOf('@') + 1);
+        function writeProcessId(filePath) {
+            const temporaryPath = filePath + '.tmp';
+            fs.writeFileSync(temporaryPath, String(process.pid));
+            fs.renameSync(temporaryPath, filePath);
+        }
+        if (fs.existsSync(path.join(__dirname, 'hang'))) {
+            writeProcessId(path.join(__dirname, 'child.pid'));
+        }
         const packageRoot = path.join(root, 'node_modules', '@google', 'gemini-cli');
         const mismatch = fs.existsSync(path.join(__dirname, 'mismatch'));
         const entrypoint = 'PACKAGE_ENTRY';
@@ -92,13 +100,7 @@ public sealed class CliInstallationTests
                 path.join(__dirname, 'pipe-holder.pid')], { detached: true, stdio: 'inherit' });
             holder.unref();
         }
-        function writeProcessId(filePath) {
-            const temporaryPath = filePath + '.tmp';
-            fs.writeFileSync(temporaryPath, String(process.pid));
-            fs.renameSync(temporaryPath, filePath);
-        }
         if (fs.existsSync(path.join(__dirname, 'hang'))) {
-            writeProcessId(path.join(__dirname, 'child.pid'));
             setInterval(() => {}, 1000);
         }
         if (fs.existsSync(path.join(__dirname, 'overflow'))) {
