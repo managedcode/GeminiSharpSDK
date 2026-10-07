@@ -31,10 +31,13 @@ public sealed class GeminiClient : IDisposable
 
     public GeminiClientState State => _connectionState.GetSnapshot();
 
+    /// <summary>Gets the resolved executable and literal prefix arguments for the configured Gemini CLI.</summary>
+    public ManagedCode.GeminiSharpSDK.Models.CliLaunchCommand GetCliLaunchCommand() => _options.GetCliLaunchCommand();
+
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _connectionState.Start(CreateExec);
+        _connectionState.Start(() => CreateExec());
         return Task.CompletedTask;
     }
 
@@ -63,9 +66,9 @@ public sealed class GeminiClient : IDisposable
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_options.CliMetadataMaximumFileCharacters);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_options.CliMetadataProbeLeaseTimeout, TimeSpan.Zero);
-        var executablePath = GeminiCliLocator.FindGeminiPath(_options.GeminiExecutablePath);
-        var exec = CreateExec();
-        return GeminiCliMetadataReader.Read(executablePath, exec.BuildEnvironment(_options.BaseUrl, _options.ApiKey),
+        var launchCommand = GetCliLaunchCommand();
+        var exec = CreateExec(launchCommand);
+        return GeminiCliMetadataReader.Read(launchCommand, exec.BuildEnvironment(_options.BaseUrl, _options.ApiKey),
             _options.InheritEnvironmentVariables ?? _options.EnvironmentVariables is null,
             _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters,
             _options.CliMetadataMaximumFileCharacters, _options.CliMetadataProbeLeaseTimeout);
@@ -74,20 +77,20 @@ public sealed class GeminiClient : IDisposable
     public GeminiCliUpdateStatus GetCliUpdateStatus()
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_options.CliMetadataProbeLeaseTimeout, TimeSpan.Zero);
-        var executablePath = GeminiCliLocator.FindGeminiPath(_options.GeminiExecutablePath);
-        var exec = CreateExec();
-        return GeminiCliMetadataReader.ReadUpdateStatus(executablePath,
+        var launchCommand = GetCliLaunchCommand();
+        var exec = CreateExec(launchCommand);
+        return GeminiCliMetadataReader.ReadUpdateStatus(launchCommand,
             exec.BuildEnvironment(_options.BaseUrl, _options.ApiKey),
             _options.InheritEnvironmentVariables ?? _options.EnvironmentVariables is null,
             _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters,
-            _options.CliMetadataProbeLeaseTimeout);
+            _options.CliMetadataProbeLeaseTimeout, _options.CliMetadataMaximumFileCharacters);
     }
 
     public void Dispose() => _connectionState.Dispose();
 
-    private GeminiExec GetOrCreateExec() => _connectionState.GetOrCreate(_autoStart, CreateExec);
+    private GeminiExec GetOrCreateExec() => _connectionState.GetOrCreate(_autoStart, () => CreateExec());
 
-    private GeminiExec CreateExec()
+    private GeminiExec CreateExec(ManagedCode.GeminiSharpSDK.Models.CliLaunchCommand? launchCommand = null)
     {
         return new GeminiExec(
             _options.GeminiExecutablePath,
@@ -97,7 +100,8 @@ public sealed class GeminiClient : IDisposable
             _options.Logger,
             _options.ProcessTerminationTimeout,
             _options.InheritEnvironmentVariables,
-            _options.MaximumProcessOutputCharacters);
+            _options.MaximumProcessOutputCharacters,
+            launchCommand ?? _options.GetCliLaunchCommand());
     }
 
     private static GeminiClientOptions CreateClientOptions(GeminiOptions options)

@@ -16,7 +16,7 @@ Expose runtime Gemini CLI metadata to SDK consumers:
 - SDK-known model IDs from the official Gemini CLI catalog (not per-account eligibility)
 - update availability status vs latest published npm `@google/gemini-cli` version
 
-The public `GeminiModels` constants track model IDs in the bundled official Gemini CLI catalog. They include the stable `gemini-3.5-flash` and `gemini-3.1-flash-lite` choices, the newer access-gated `gemini-3.8-flash` and `gemini-3.5-flash-lite` choices, preview models, and the CLI's supported Gemma 4 IDs. Availability of gated or preview IDs still depends on the user's Gemini CLI account and configuration.
+`GeminiCliMetadata.Models` reports the bundled official CLI catalog plus its documented aliases (`auto`, `pro`, `flash`, `flash-lite`, `auto-gemini-3`, and `auto-gemini-2.5`). The catalog includes stable and preview model IDs and the CLI's supported Gemma 4 IDs, but excludes the retired `gemini-3.1-flash-lite-preview` alias. Static catalog membership does not establish account, experiment, or quota eligibility. Public `GeminiModels` constants remain available for compatibility even when an ID is retired from the current CLI catalog.
 
 ---
 
@@ -49,6 +49,7 @@ The public `GeminiModels` constants track model IDs in the bundled official Gemi
 - Update check failures (for example missing `npm`) must return actionable status messages and never silently fail.
 - Update command text must not assume npm-only installs; SDK must emit `bun` update command when bun-managed install is detected.
 - Metadata probes use the configured environment policy and `GeminiOptions.CliMetadataProbeTimeout` plus `GeminiOptions.CliMetadataMaximumOutputCharacters`; stdout and stderr drain concurrently, over-cap output fails explicitly, and timeout cleanup confirms root-process exit.
+- CLI metadata uses the same immutable `CliLaunchCommand` resolver as model execution. Windows npm `.cmd` wrappers are not executed: only the selected wrapper's adjacent known-package manifest, bounded by `GeminiOptions.CliMetadataMaximumFileCharacters`, can resolve an in-package JavaScript entrypoint (through absolute Node/Bun) or native `.exe`/`.com`. The npm update probe follows the same rule for the selected `npm.cmd`; unknown or malformed wrappers fail closed.
 
 ---
 
@@ -56,11 +57,13 @@ The public `GeminiModels` constants track model IDs in the bundled official Gemi
 
 ```mermaid
 flowchart LR
-  Client["GeminiClient.GetCliMetadata()"] --> Version["gemini --version"]
+  Client["GeminiClient.GetCliMetadata()"] --> Resolve["Resolve immutable executable + prefix arguments"]
+  Resolve --> Version["gemini --version"]
   Client --> Update["GeminiClient.GetCliUpdateStatus()"]
   Client --> Config["~/.gemini/settings.json model.name"]
   Client --> Catalog["SDK-known official CLI model IDs"]
-  Update --> Npm["npm view @google/gemini-cli version"]
+  Update --> ResolveNpm["Resolve Node/Bun npm entrypoint"]
+  ResolveNpm --> Npm["npm view @google/gemini-cli version"]
   Version --> Metadata["GeminiCliMetadata"]
   Npm --> UpdateStatus["GeminiCliUpdateStatus"]
   Config --> Metadata

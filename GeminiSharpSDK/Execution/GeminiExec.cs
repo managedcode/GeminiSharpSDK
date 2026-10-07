@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using ManagedCode.GeminiSharpSDK.Client;
 using ManagedCode.GeminiSharpSDK.Configuration;
 using ManagedCode.GeminiSharpSDK.Internal;
+using ManagedCode.GeminiSharpSDK.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -30,6 +31,7 @@ public sealed class GeminiExec
     private const string CSharpSdkOriginator = "gemini_sdk_csharp";
     private const string OpenAiBaseUrlEnv = "OPENAI_BASE_URL";
     private const string GeminiApiKeyEnv = "GEMINI_API_KEY";
+    private const string PathEnvironmentVariable = "PATH";
     private const string ProcessTerminationTimeoutMustBePositiveMessage = "Process termination timeout must be positive.";
 
     private readonly string _executablePath;
@@ -40,6 +42,7 @@ public sealed class GeminiExec
     private readonly ILogger _logger;
     private readonly TimeSpan _processTerminationTimeout;
     private readonly int _maximumProcessOutputCharacters;
+    private readonly CliLaunchCommand _launchCommand;
 
     public GeminiExec(
         string? executablePath = null,
@@ -68,7 +71,8 @@ public sealed class GeminiExec
         ILogger? logger = null,
         TimeSpan? processTerminationTimeout = null,
         bool? inheritEnvironmentVariables = null,
-        int maximumProcessOutputCharacters = GeminiOptions.DefaultMaximumProcessOutputCharacters)
+        int maximumProcessOutputCharacters = GeminiOptions.DefaultMaximumProcessOutputCharacters,
+        CliLaunchCommand? launchCommand = null)
     {
         var resolvedTerminationTimeout = processTerminationTimeout ?? GeminiOptions.DefaultProcessTerminationTimeout;
         if (resolvedTerminationTimeout <= TimeSpan.Zero)
@@ -78,7 +82,10 @@ public sealed class GeminiExec
 
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumProcessOutputCharacters);
 
-        _executablePath = GeminiCliLocator.FindGeminiPath(executablePath);
+        var inheritsEnvironment = inheritEnvironmentVariables ?? environmentOverride is null;
+        _launchCommand = launchCommand ?? CliLaunchCommandResolver.Resolve(executablePath,
+            ResolvePathVariable(environmentOverride, inheritsEnvironment), GeminiOptions.DefaultCliMetadataMaximumFileCharacters);
+        _executablePath = _launchCommand.ExecutablePath;
         _environmentOverride = environmentOverride;
         _inheritEnvironmentVariables = inheritEnvironmentVariables ?? environmentOverride is null;
         _configOverrides = configOverrides;
@@ -103,6 +110,7 @@ public sealed class GeminiExec
         {
             MaximumProcessOutputCharacters = _maximumProcessOutputCharacters,
             Input = args.Input,
+            PrefixArguments = _launchCommand.PrefixArguments,
         };
 
         return RunWithDiagnosticsAsync(invocation, args.CancellationToken);
@@ -268,6 +276,24 @@ public sealed class GeminiExec
         return environment;
     }
 
+    private static string? ResolvePathVariable(IReadOnlyDictionary<string, string>? environmentOverride, bool inheritEnvironmentVariables)
+    {
+        if (environmentOverride is not null)
+        {
+            foreach (var (key, value) in environmentOverride)
+            {
+                if (string.Equals(key, PathEnvironmentVariable, OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return inheritEnvironmentVariables ? Environment.GetEnvironmentVariable(PathEnvironmentVariable) : null;
+    }
+
     private static void AddRepeatedFlag(
         List<string> commandArgs,
         string flag,
@@ -343,6 +369,7 @@ internal sealed record GeminiProcessInvocation(
     string? WorkingDirectory,
     TimeSpan ProcessTerminationTimeout)
 {
+    public IReadOnlyList<string> PrefixArguments { get; init; } = Array.Empty<string>();
     public int MaximumProcessOutputCharacters { get; init; } = GeminiOptions.DefaultMaximumProcessOutputCharacters;
 
     public string Input { get; init; } = string.Empty;
@@ -385,6 +412,11 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
             CreateNoWindow = true,
         };
 
+        foreach (var argument in invocation.PrefixArguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
         foreach (var argument in invocation.Arguments)
         {
             startInfo.ArgumentList.Add(argument);
@@ -404,8 +436,12 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
         using var process = new Process { StartInfo = startInfo };
         Task<BoundedProcessOutput>? standardErrorTask = null;
         Task<string?>? standardOutputReadTask = null;
+        BoundedProcessOutputReader? standardOutput = null;
         Task? standardInputWriteTask = null;
         using var outputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var cancellationSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellationRegistration = cancellationToken.Register(
+            static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), cancellationSignal);
         var standardErrorLimitExceeded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Exception? cleanupFailure = null;
         cancellationToken.ThrowIfCancellationRequested();
@@ -438,17 +474,33 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                     }
 
                     outputCancellation.Cancel();
-                }, outputCancellation.Token, invocation.StandardErrorReaderCompleted);
-            var standardOutput = new BoundedProcessOutputReader(process.StandardOutput,
+                }, CancellationToken.None, invocation.StandardErrorReaderCompleted);
+            standardOutput = new BoundedProcessOutputReader(process.StandardOutput,
                 invocation.MaximumProcessOutputCharacters, invocation.StandardOutputReadCompleted);
-            standardOutputReadTask = standardOutput.ReadLineAsync(outputCancellation.Token).AsTask();
+            standardOutputReadTask = standardOutput.ReadLineAsync(CancellationToken.None).AsTask();
             standardInputWriteTask = WriteStandardInputAsync(process.StandardInput, invocation.Input, outputCancellation.Token);
             while (true)
             {
                 var readLineTask = standardOutputReadTask!;
                 var completedTask = standardInputWriteTask is null
-                    ? await Task.WhenAny(readLineTask, standardErrorLimitExceeded.Task).ConfigureAwait(false)
-                    : await Task.WhenAny(readLineTask, standardErrorLimitExceeded.Task, standardInputWriteTask).ConfigureAwait(false);
+                    ? await Task.WhenAny(readLineTask, standardErrorLimitExceeded.Task, cancellationSignal.Task).ConfigureAwait(false)
+                    : await Task.WhenAny(readLineTask, standardErrorLimitExceeded.Task, standardInputWriteTask, cancellationSignal.Task).ConfigureAwait(false);
+                if (cancellationToken.IsCancellationRequested && process.HasExited)
+                {
+                    await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+                    var exitedStandardError = await ReadStandardErrorAsync(
+                        standardErrorTask!, invocation.ProcessTerminationTimeout).ConfigureAwait(false);
+                    if (process.ExitCode != 0)
+                    {
+                        throw CliExecutionFailureException.FromProcessExit(process.ExitCode,
+                            $"Gemini Exec exited with code {process.ExitCode}: {exitedStandardError.Text}");
+                    }
+                }
+
+                if (completedTask == cancellationSignal.Task)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
                 if (completedTask == standardErrorLimitExceeded.Task || standardErrorLimitExceeded.Task.IsCompleted)
                 {
                     try
@@ -518,7 +570,7 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                 }
 
                 yield return line;
-                standardOutputReadTask = standardOutput.ReadLineAsync(outputCancellation.Token).AsTask();
+                standardOutputReadTask = standardOutput.ReadLineAsync(CancellationToken.None).AsTask();
             }
 
             try
@@ -534,7 +586,8 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
             var standardError = await ReadStandardErrorAsync(standardErrorTask, invocation.ProcessTerminationTimeout).ConfigureAwait(false);
             if (process.ExitCode != 0)
             {
-                throw new InvalidOperationException($"Gemini Exec exited with code {process.ExitCode}: {standardError.Text}");
+                throw CliExecutionFailureException.FromProcessExit(process.ExitCode,
+                    $"Gemini Exec exited with code {process.ExitCode}: {standardError.Text}");
             }
         }
         finally
@@ -576,6 +629,35 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                                           standardInputWriteTask.Exception?.GetBaseException() is IOException)
                 {
                     // Stderr overflow already owns the visible output-limit failure.
+                }
+                catch (IOException) when (process.HasExited && process.ExitCode != 0 &&
+                                          standardInputWriteTask.IsFaulted &&
+                                          standardInputWriteTask.Exception?.GetBaseException() is IOException)
+                {
+                    // The confirmed nonzero root exit owns this completed stdin broken pipe.
+                }
+                catch (Exception exception)
+                {
+                    readerFailures.Add(exception);
+                }
+            }
+
+            if (standardOutput is not null)
+            {
+                var drainResult = await DrainStandardOutputToEofAsync(standardOutput, standardOutputReadTask,
+                    invocation.ProcessTerminationTimeout).ConfigureAwait(false);
+                standardOutputReadTask = drainResult.PendingRead;
+                if (drainResult.Failure is not null)
+                {
+                    readerFailures.Add(drainResult.Failure);
+                }
+            }
+
+            if (standardErrorTask is not null)
+            {
+                try
+                {
+                    await ReadStandardErrorAsync(standardErrorTask, invocation.ProcessTerminationTimeout).ConfigureAwait(false);
                 }
                 catch (Exception exception)
                 {
@@ -696,6 +778,37 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
         }
     }
 
+    private static async Task<StandardOutputDrainResult> DrainStandardOutputToEofAsync(
+        BoundedProcessOutputReader reader,
+        Task<string?>? pendingRead,
+        TimeSpan timeout)
+    {
+        using var timeoutCancellation = new CancellationTokenSource(timeout);
+        var currentRead = pendingRead;
+        try
+        {
+            while (true)
+            {
+                currentRead ??= reader.ReadLineAsync(CancellationToken.None).AsTask();
+                var line = await currentRead.WaitAsync(timeoutCancellation.Token).ConfigureAwait(false);
+                currentRead = null;
+                if (line is null)
+                {
+                    return new StandardOutputDrainResult(null, null);
+                }
+            }
+        }
+        catch (OperationCanceledException exception) when (timeoutCancellation.IsCancellationRequested)
+        {
+            return new StandardOutputDrainResult(currentRead,
+                new InvalidOperationException(StandardOutputTerminationUnconfirmedMessage, exception));
+        }
+        catch (Exception exception)
+        {
+            return new StandardOutputDrainResult(currentRead, exception);
+        }
+    }
+
     private static async Task ThrowIfExitedWithFailureAsync(
         Process process,
         Task<BoundedProcessOutput> standardErrorTask,
@@ -707,7 +820,8 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
         }
 
         var standardError = await ReadStandardErrorAsync(standardErrorTask, processTerminationTimeout).ConfigureAwait(false);
-        throw new InvalidOperationException($"Gemini Exec exited with code {process.ExitCode}: {standardError.Text}");
+        throw CliExecutionFailureException.FromProcessExit(process.ExitCode,
+            $"Gemini Exec exited with code {process.ExitCode}: {standardError.Text}");
     }
 
     private static async Task<BoundedProcessOutput> ReadStandardErrorAsync(Task<BoundedProcessOutput> standardErrorTask, TimeSpan timeout)
@@ -754,7 +868,8 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
             var standardError = await ReadStandardErrorAsync(standardErrorTask, timeout).ConfigureAwait(false);
             if (process.ExitCode != 0)
             {
-                throw new InvalidOperationException($"Gemini Exec exited with code {process.ExitCode}: {standardError.Text}");
+                throw CliExecutionFailureException.FromProcessExit(process.ExitCode,
+                    $"Gemini Exec exited with code {process.ExitCode}: {standardError.Text}");
             }
 
             ExceptionDispatchInfo.Capture(exception).Throw();
@@ -836,6 +951,8 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
 }
 
 internal sealed record BoundedProcessOutput(string Text);
+
+internal sealed record StandardOutputDrainResult(Task<string?>? PendingRead, Exception? Failure);
 
 internal sealed class BoundedProcessOutputReader(
     TextReader reader,

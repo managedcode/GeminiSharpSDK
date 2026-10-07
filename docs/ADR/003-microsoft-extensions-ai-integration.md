@@ -15,13 +15,13 @@ Implement `IChatClient` from `Microsoft.Extensions.AI.Abstractions` in a **separ
 
 1. **Separate package** — Core SDK remains M.E.AI-free. The adapter is opt-in, following the pattern of `Microsoft.Extensions.AI.OpenAI` being separate from `OpenAI`.
 
-2. **Custom AIContent types** — Rich Gemini items (command execution, file changes, MCP tool calls, web searches, multi-agent collaboration) are surfaced as typed `AIContent` subclasses rather than being flattened to text. This preserves full fidelity of Gemini output.
+2. **Safe activity metadata alongside typed results** — Full-response and completed streaming native command, file-change, MCP, web-search, and collaboration items retain their existing typed MEAI content and add fixed `ChatResponseUpdate.AdditionalProperties` categories and phases. Started/updated events and CLI-native `tool_use`/`tool_result` events use metadata only. Raw typed payload fields remain available to SDK consumers for compatibility; Prostir reads only the fixed categories and does not display those fields.
 
 3. **Gemini-specific options via AdditionalProperties** — Standard `ChatOptions` properties (`ModelId`, `ConversationId`) map directly. Gemini-unique features use `gemini:*` prefixed keys in `ChatOptions.AdditionalProperties` (for example `gemini:sandbox_mode`). Options not supported by the current headless CLI contract fail fast instead of silently degrading.
 
 4. **Thread-per-call with ConversationId resume** — Each `GetResponseAsync` call creates or resumes a `GeminiThread`. Thread ID flows via `ChatResponse.ConversationId` for multi-turn continuity.
 
-5. **No AITool support** — Gemini CLI manages tools internally (commands, file changes, MCP). Consumer-registered `ChatOptions.Tools` are ignored; tool results surface as custom `AIContent` types instead.
+5. **No AITool support** — Gemini CLI manages tools internally (commands, file changes, MCP). Consumer-registered `ChatOptions.Tools` are ignored; streamed tool activity is metadata only and is never interpreted as a consumer-callable function.
 
 ## Diagram
 
@@ -61,7 +61,8 @@ flowchart LR
 
 - Impedance mismatch: Gemini is an agentic coding tool, not a simple chat API. Multi-turn via message history doesn't map cleanly (uses thread resume instead).
 - Current headless CLI does not expose generic chat-tuning knobs such as temperature/topP/topK, and unsupported options are rejected explicitly.
-- Streaming is event-level (`init`/`message`/`tool_use`/`tool_result`/`result`), not token-level.
+- Streaming is event-level (`init`/`message`/`tool_use`/`tool_result`/`result`), not token-level. The pinned CLI emits assistant `delta=true` fragments; the adapter streams them directly and reconciles final item snapshots by exact `AgentMessageItem.Id` with the configured process-output bound. The pinned implementation does not emit assistant `delta=false`; such an event is treated as one complete segment instead of an assumed cumulative snapshot. Conflicting same-ID item snapshots fail closed while different item IDs remain distinct.
+- Completed native command, file-change, MCP, web-search, and collaboration items retain their typed MEAI content and add fixed safe-category metadata; intermediate events use metadata only.
 
 ### Neutral
 

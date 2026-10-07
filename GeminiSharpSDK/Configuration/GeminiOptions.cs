@@ -1,10 +1,12 @@
 using System.Text.Json.Nodes;
+using ManagedCode.GeminiSharpSDK.Internal;
 using Microsoft.Extensions.Logging;
 
 namespace ManagedCode.GeminiSharpSDK.Configuration;
 
 public sealed record GeminiOptions
 {
+    private const string PathEnvironmentVariable = "PATH";
     public static readonly TimeSpan DefaultProcessTerminationTimeout = TimeSpan.FromSeconds(5);
 
     public static readonly TimeSpan DefaultCliMetadataProbeTimeout = TimeSpan.FromSeconds(10);
@@ -42,4 +44,31 @@ public sealed record GeminiOptions
     public int MaximumProcessOutputCharacters { get; init; } = DefaultMaximumProcessOutputCharacters;
 
     public ILogger? Logger { get; init; }
+
+    /// <summary>Resolves the installed CLI to an executable and safe literal prefix arguments.</summary>
+    public ManagedCode.GeminiSharpSDK.Models.CliLaunchCommand GetCliLaunchCommand()
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(CliMetadataMaximumFileCharacters);
+        return CliLaunchCommandResolver.Resolve(GeminiExecutablePath, GetEffectivePath(), CliMetadataMaximumFileCharacters);
+    }
+
+    internal string? GetEffectivePath()
+    {
+        if (EnvironmentVariables is not null)
+        {
+            foreach (var (key, value) in EnvironmentVariables)
+            {
+                if (string.Equals(key, PathEnvironmentVariable, OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return (InheritEnvironmentVariables ?? EnvironmentVariables is null)
+            ? Environment.GetEnvironmentVariable(PathEnvironmentVariable)
+            : null;
+    }
 }

@@ -42,7 +42,12 @@ public static class GeminiModels
         Gemini31ProPreview,
         Gemini31ProPreviewCustomTools,
         Gemini3FlashPreview,
-        Gemini31FlashLitePreview,
+        AutoGemini3,
+        AutoGemini25,
+        AliasAuto,
+        AliasPro,
+        AliasFlash,
+        AliasFlashLite,
         GeminiGemma431BIt,
         GeminiGemma426BA4BIt
     ]);

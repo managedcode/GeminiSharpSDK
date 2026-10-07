@@ -14,15 +14,11 @@ internal static class GeminiCliMetadataReader
     private const string InvalidProbeOutputMessage = "Gemini CLI metadata probe returned invalid output.";
     private const string VersionFlag = "--version";
     private const string CliVersionPrefix = "gemini-cli";
-    private const string NpmExecutableName = "npm";
-    private const string NpmWindowsScriptName = "npm.cmd";
-    private const string WindowsCommandProcessorName = "cmd.exe";
-    private const string WindowsCommandDisableAutoRunFlag = "/d";
-    private const string WindowsCommandFlag = "/c";
     private const string NpmViewCommand = "view";
     private const string NpmPackageName = "@google/gemini-cli";
     private const string NpmVersionProperty = "version";
     private const string NpmSilentFlag = "--silent";
+    private const string PathEnvironmentVariable = "PATH";
     private const string NpmGlobalUpdateCommand = "npm install --global @google/gemini-cli@latest";
     private const string BunGlobalUpdateCommand = "bun add --global @google/gemini-cli@latest";
     private const string NpmUserAgentEnvironmentVariable = "npm_config_user_agent";
@@ -70,13 +66,24 @@ internal static class GeminiCliMetadataReader
         int maximumOutputCharacters,
         int maximumFileCharacters = GeminiOptions.DefaultCliMetadataMaximumFileCharacters,
         TimeSpan? probeLeaseTimeout = null)
+        => Read(new CliLaunchCommand(Path.GetFullPath(executablePath), System.Collections.Immutable.ImmutableArray<string>.Empty), environment, inheritEnvironmentVariables,
+            probeTimeout, maximumOutputCharacters, maximumFileCharacters, probeLeaseTimeout);
+
+    public static GeminiCliMetadata Read(
+        CliLaunchCommand launchCommand,
+        IReadOnlyDictionary<string, string> environment,
+        bool inheritEnvironmentVariables,
+        TimeSpan probeTimeout,
+        int maximumOutputCharacters,
+        int maximumFileCharacters = GeminiOptions.DefaultCliMetadataMaximumFileCharacters,
+        TimeSpan? probeLeaseTimeout = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
+        ArgumentNullException.ThrowIfNull(launchCommand);
         ArgumentNullException.ThrowIfNull(environment);
         var leaseTimeout = probeLeaseTimeout ?? GeminiOptions.DefaultCliMetadataProbeLeaseTimeout;
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(leaseTimeout, TimeSpan.Zero);
 
-        var installedVersion = ReadInstalledVersion(executablePath, environment, inheritEnvironmentVariables,
+        var installedVersion = ReadInstalledVersion(launchCommand, environment, inheritEnvironmentVariables,
             probeTimeout, maximumOutputCharacters, leaseTimeout);
         var homeDirectory = ResolveHomeDirectory(environment, inheritEnvironmentVariables);
         var defaultModel = string.IsNullOrWhiteSpace(homeDirectory)
@@ -97,16 +104,27 @@ internal static class GeminiCliMetadataReader
         TimeSpan probeTimeout,
         int maximumOutputCharacters,
         TimeSpan? probeLeaseTimeout = null)
+        => ReadUpdateStatus(new CliLaunchCommand(Path.GetFullPath(executablePath), System.Collections.Immutable.ImmutableArray<string>.Empty), environment,
+            inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters, probeLeaseTimeout);
+
+    public static GeminiCliUpdateStatus ReadUpdateStatus(
+        CliLaunchCommand launchCommand,
+        IReadOnlyDictionary<string, string> environment,
+        bool inheritEnvironmentVariables,
+        TimeSpan probeTimeout,
+        int maximumOutputCharacters,
+        TimeSpan? probeLeaseTimeout = null,
+        int maximumFileCharacters = GeminiOptions.DefaultCliMetadataMaximumFileCharacters)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
+        ArgumentNullException.ThrowIfNull(launchCommand);
         ArgumentNullException.ThrowIfNull(environment);
         var leaseTimeout = probeLeaseTimeout ?? GeminiOptions.DefaultCliMetadataProbeLeaseTimeout;
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(leaseTimeout, TimeSpan.Zero);
 
-        var installedVersion = ReadInstalledVersion(executablePath, environment, inheritEnvironmentVariables,
+        var installedVersion = ReadInstalledVersion(launchCommand, environment, inheritEnvironmentVariables,
             probeTimeout, maximumOutputCharacters, leaseTimeout);
         var probe = ProbeLatestPublishedVersion(environment, inheritEnvironmentVariables, probeTimeout,
-            maximumOutputCharacters, leaseTimeout);
+            maximumOutputCharacters, leaseTimeout, maximumFileCharacters);
         if (!string.IsNullOrWhiteSpace(probe.ErrorMessage))
         {
             var failureMessage = $"{UpdateCheckFailedMessagePrefix} {probe.ErrorMessage}";
@@ -124,7 +142,7 @@ internal static class GeminiCliMetadataReader
             return new GeminiCliUpdateStatus(installedVersion, probe.LatestVersion, false, null, null);
         }
 
-        var updateCommand = ResolveUpdateCommand(executablePath,
+        var updateCommand = ResolveUpdateCommand(launchCommand.ExecutablePath,
             environment.GetValueOrDefault(NpmUserAgentEnvironmentVariable),
             environment.GetValueOrDefault(BunInstallEnvironmentVariable),
             inheritEnvironmentVariables);
@@ -329,14 +347,14 @@ internal static class GeminiCliMetadataReader
     }
 
     private static string ReadInstalledVersion(
-        string executablePath,
+        CliLaunchCommand launchCommand,
         IReadOnlyDictionary<string, string> environment,
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
         int maximumOutputCharacters,
         TimeSpan leaseTimeout)
     {
-        var probe = BoundedCliProcessProbe.Run(executablePath, [VersionFlag], environment,
+        var probe = BoundedCliProcessProbe.Run(launchCommand, [VersionFlag], environment,
             inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters,
             leaseAcquisitionTimeout: leaseTimeout);
         if (probe.ExitCode != 0)
@@ -362,12 +380,13 @@ internal static class GeminiCliMetadataReader
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
         int maximumOutputCharacters,
-        TimeSpan leaseTimeout)
+        TimeSpan leaseTimeout,
+        int maximumFileCharacters)
     {
         try
         {
             var probe = RunNpmVersionProbe(environment, inheritEnvironmentVariables,
-                probeTimeout, maximumOutputCharacters, leaseTimeout);
+                probeTimeout, maximumOutputCharacters, leaseTimeout, maximumFileCharacters);
             if (probe.ExitCode != 0)
             {
                 return LatestVersionProbe.WithError(ProbeFailureMessage);
@@ -389,22 +408,30 @@ internal static class GeminiCliMetadataReader
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
         int maximumOutputCharacters,
-        TimeSpan leaseTimeout)
+        TimeSpan leaseTimeout,
+        int maximumFileCharacters)
     {
         var npmArguments = new[] { NpmViewCommand, NpmPackageName, NpmVersionProperty, NpmSilentFlag };
-        if (!OperatingSystem.IsWindows())
+        var pathVariable = ResolveEffectivePath(environment, inheritEnvironmentVariables);
+        var launchCommand = CliLaunchCommandResolver.ResolveNpm(pathVariable, maximumFileCharacters);
+        return BoundedCliProcessProbe.Run(launchCommand, npmArguments, environment,
+            inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters,
+            leaseAcquisitionTimeout: leaseTimeout);
+    }
+
+    private static string? ResolveEffectivePath(IReadOnlyDictionary<string, string> environment, bool inheritEnvironmentVariables)
+    {
+        foreach (var (key, value) in environment)
         {
-            return BoundedCliProcessProbe.Run(NpmExecutableName, npmArguments, environment,
-                inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters,
-                leaseAcquisitionTimeout: leaseTimeout);
+            if (string.Equals(key, PathEnvironmentVariable, OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal))
+            {
+                return value;
+            }
         }
 
-        var commandProcessor = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
-            WindowsCommandProcessorName);
-        return BoundedCliProcessProbe.Run(commandProcessor,
-            [WindowsCommandDisableAutoRunFlag, WindowsCommandFlag, NpmWindowsScriptName, .. npmArguments],
-            environment, inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters,
-            leaseAcquisitionTimeout: leaseTimeout);
+        return inheritEnvironmentVariables ? Environment.GetEnvironmentVariable("PATH") : null;
     }
 
     private static string? ReadDefaultModel(string homeDirectory, int maximumCharacters)

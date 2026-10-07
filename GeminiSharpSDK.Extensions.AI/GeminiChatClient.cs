@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using ManagedCode.GeminiSharpSDK.Client;
+using ManagedCode.GeminiSharpSDK.Configuration;
 using ManagedCode.GeminiSharpSDK.Extensions.AI.Internal;
 using Microsoft.Extensions.AI;
 
@@ -60,7 +61,10 @@ public sealed class GeminiChatClient : IChatClient
             var streamed = await thread.RunStreamedAsync(userInput, turnOptions)
                 .ConfigureAwait(false);
 
-            await foreach (var update in StreamingEventMapper.ToUpdates(streamed.Events, cancellationToken)
+            await foreach (var update in StreamingEventMapper.ToUpdates(
+                               streamed.Events,
+                               _options.GeminiOptions?.MaximumProcessOutputCharacters ?? GeminiOptions.DefaultMaximumProcessOutputCharacters,
+                               cancellationToken)
                                .WithCancellation(cancellationToken)
                                .ConfigureAwait(false))
             {

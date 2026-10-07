@@ -15,13 +15,19 @@ public class GeminiClientTests
     private const string NpmFixtureArgumentsFileName = "npm-arguments.txt";
     private const string NpmFixtureVersionOutput = "99.0.0";
     private const string NpmFixtureExpectedArguments = "view @google/gemini-cli version --silent";
-    private const string NpmFixtureScriptContent = "@echo off\r\necho %*>> \"%SDK_NPM_ARGS_FILE%\"\r\necho " + NpmFixtureVersionOutput + "\r\n";
+    private const string NpmFixturePackageName = "npm";
+    private const string NpmFixtureScriptRelativePath = "bin/npm-cli.js";
+    private const string NpmFixtureScriptContent = "const fs = require('node:fs');\n" +
+        "fs.writeFileSync(process.env.SDK_NPM_ARGS_FILE, process.argv.slice(2).join(' '));\n" +
+        "console.log('" + NpmFixtureVersionOutput + "');\n";
+    private const string NpmFixtureShimContent = "@ECHO off\r\nexit /b 91\r\n";
     private const string NpmArgumentsEnvironmentVariable = "SDK_NPM_ARGS_FILE";
     private const string SystemRootEnvironmentVariable = "SystemRoot";
     private const string HomeEnvironmentVariable = "HOME";
     private const string UserProfileEnvironmentVariable = "USERPROFILE";
     private const string MetadataSandboxPrefix = "GeminiClientMetadata-";
     private const string PathEnvironmentVariable = "PATH";
+    private const string AmbientInstallFallbackName = "GeminiAmbientInstallFallback-";
     private const string GeminiCliHomeEnvironmentVariable = "GEMINI_CLI_HOME";
     private const string DotGeminiDirectoryName = ".gemini";
     private const string GeminiSettingsFileName = "settings.json";
@@ -35,6 +41,33 @@ public class GeminiClientTests
     private const string ResumeSandboxPrefix = "GeminiClientTests-ResumeThread-";
     private static readonly TimeSpan SandboxCommandTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan MultiTurnTimeout = TimeSpan.FromMinutes(3);
+
+    [Test]
+    public async Task GeminiOptions_LaunchResolutionUsesOnlyIsolatedEnvironmentPath()
+    {
+        var emptyPath = Path.Combine(Environment.CurrentDirectory, "tests", ".sandbox",
+            $"{AmbientInstallFallbackName}{Guid.NewGuid():N}");
+        Directory.CreateDirectory(emptyPath);
+        try
+        {
+            var options = new GeminiOptions
+            {
+                InheritEnvironmentVariables = false,
+                EnvironmentVariables = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [PathEnvironmentVariable] = emptyPath,
+                },
+            };
+
+            var exception = await Assert.That(() => options.GetCliLaunchCommand()).ThrowsException();
+
+            await Assert.That(exception).IsTypeOf<FileNotFoundException>();
+        }
+        finally
+        {
+            Directory.Delete(emptyPath, recursive: true);
+        }
+    }
 
     [Test]
     public async Task StartAsync_CanBeCalledConcurrently()
@@ -296,6 +329,20 @@ public class GeminiClientTests
             await Assert.That(metadata.DefaultModel).IsEqualTo(GeminiModels.Gemini35Flash);
             await Assert.That(metadata.Models.Any(model => model.Slug == GeminiModels.Gemini35Flash)).IsTrue();
             await Assert.That(metadata.Models.Any(model => model.Slug == GeminiModels.Gemini31FlashLite)).IsTrue();
+            foreach (var alias in new[]
+                     {
+                         GeminiModels.AliasAuto,
+                         GeminiModels.AliasPro,
+                         GeminiModels.AliasFlash,
+                         GeminiModels.AliasFlashLite,
+                         GeminiModels.AutoGemini3,
+                         GeminiModels.AutoGemini25,
+                     })
+            {
+                await Assert.That(metadata.Models.Any(model => model.Slug == alias && model.IsListed)).IsTrue();
+            }
+
+            await Assert.That(metadata.Models.Any(model => model.Slug == GeminiModels.Gemini31FlashLitePreview)).IsFalse();
             await Assert.That(metadata.Models.Single(model => model.Slug == GeminiModels.Gemini35Flash).IsApiSupported)
                 .IsFalse();
         }
@@ -368,7 +415,7 @@ public class GeminiClientTests
     }
 
     [Test]
-    public async Task GeminiCli_UpdateStatus_InvokesScopedNpmPackageThroughWindowsCommandProcessor()
+    public async Task GeminiCli_UpdateStatus_InvokesValidatedNpmPackageThroughNode()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -381,17 +428,23 @@ public class GeminiClientTests
         Directory.CreateDirectory(sandbox);
         var npmScriptPath = Path.Combine(sandbox, NpmFixtureScriptFileName);
         var argumentsPath = Path.Combine(sandbox, NpmFixtureArgumentsFileName);
+        var nodePath = FindNodeExecutable();
+        var npmCliPath = Path.Combine(sandbox, "node_modules", NpmFixturePackageName,
+            NpmFixtureScriptRelativePath.Replace('/', Path.DirectorySeparatorChar));
         try
         {
-            File.WriteAllText(npmScriptPath, NpmFixtureScriptContent);
+            File.WriteAllText(npmScriptPath, NpmFixtureShimContent);
+            Directory.CreateDirectory(Path.GetDirectoryName(npmCliPath)!);
+            File.WriteAllText(Path.Combine(sandbox, "node_modules", NpmFixturePackageName, "package.json"),
+                "{\"name\":\"" + NpmFixturePackageName + "\",\"bin\":{\"npm\":\"" + NpmFixtureScriptRelativePath + "\"}}");
+            File.WriteAllText(npmCliPath, NpmFixtureScriptContent);
             using var client = new GeminiClient(new GeminiOptions
             {
                 GeminiExecutablePath = GeminiCliLocator.FindGeminiPath(null),
                 InheritEnvironmentVariables = false,
                 EnvironmentVariables = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    [PathEnvironmentVariable] = string.Concat(sandbox, Path.PathSeparator,
-                        Environment.GetEnvironmentVariable(PathEnvironmentVariable)),
+                    [PathEnvironmentVariable] = string.Join(Path.PathSeparator, sandbox, Path.GetDirectoryName(nodePath)),
                     [SystemRootEnvironmentVariable] = Environment.GetEnvironmentVariable(SystemRootEnvironmentVariable) ?? string.Empty,
                     [NpmArgumentsEnvironmentVariable] = argumentsPath,
                 },
@@ -407,6 +460,21 @@ public class GeminiClientTests
         {
             Directory.Delete(sandbox, recursive: true);
         }
+    }
+
+    private static string FindNodeExecutable()
+    {
+        foreach (var entry in (Environment.GetEnvironmentVariable(PathEnvironmentVariable) ?? string.Empty)
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(entry.Trim('"'), "node.exe");
+            if (File.Exists(candidate))
+            {
+                return Path.GetFullPath(candidate);
+            }
+        }
+
+        throw new InvalidOperationException("Node.js must be available on PATH for this Windows CLI metadata regression.");
     }
 
     private static string CreateMetadataSandbox()

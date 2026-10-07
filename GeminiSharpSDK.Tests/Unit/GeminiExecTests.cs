@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ManagedCode.GeminiSharpSDK.Client;
 using ManagedCode.GeminiSharpSDK.Execution;
 using ManagedCode.GeminiSharpSDK.Models;
@@ -13,6 +14,18 @@ public class GeminiExecTests
     private const string YoloFlag = "--yolo";
     private const string ApprovalModeYoloPrompt = "--approval-mode=yolo --yolo";
     private const string ReadOnlySandboxMessageFragment = "read-only sandbox mode";
+    private const string NodeExecutableName = "node";
+    private const string PathEnvironmentVariable = "PATH";
+    private const string NodeLaunchSkipReason = "This Node.js launch regression uses Unix executable naming.";
+    private const string JavaScriptFixtureName = "gemini-cli-fixture.js";
+    private const string TestDirectoryName = "tests";
+    private const string SandboxDirectoryName = ".sandbox";
+    private const string JavaScriptInputPropertyName = "input";
+    private const string JavaScriptArgumentsPropertyName = "args";
+    private const string NodeExecutableMissingMessage = "Node.js was not found on PATH.";
+    private const string JavaScriptFixtureSource = "let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>process.stdout.write(JSON.stringify({input,args:process.argv.slice(2)})+'\\n'));";
+    private const string JavaScriptPromptPrefix = "--yolo \"literal\" & metacharacters ";
+    private const int JavaScriptPromptLength = 262144;
     [Test]
     public async Task BuildCommandArgs_BuildsCurrentHeadlessGeminiCliArguments()
     {
@@ -40,6 +53,41 @@ public class GeminiExecTests
             .IsEquivalentTo(["/tmp/shared", "/tmp/other"]);
         await Assert.That(commandArgs.Contains("--allowed-mcp-server-names")).IsTrue();
         await Assert.That(commandArgs.Contains("playwright")).IsTrue();
+    }
+
+    [Test]
+    public async Task PublicExec_LaunchesExplicitJavaScriptThroughRuntimeOnUnix()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Skip.Test(NodeLaunchSkipReason);
+            return;
+        }
+
+        var sandboxDirectory = Path.Combine(Environment.CurrentDirectory, TestDirectoryName, SandboxDirectoryName,
+            $"GeminiNodeLaunch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sandboxDirectory);
+        var nodePath = FindExecutableInPath(NodeExecutableName);
+        var scriptPath = Path.Combine(sandboxDirectory, JavaScriptFixtureName);
+        var prompt = string.Concat(JavaScriptPromptPrefix, new string('p', JavaScriptPromptLength));
+        await File.WriteAllTextAsync(scriptPath, JavaScriptFixtureSource);
+
+        try
+        {
+            var exec = new GeminiExec(scriptPath, new Dictionary<string, string>
+            {
+                [PathEnvironmentVariable] = Path.GetDirectoryName(nodePath)!,
+            }, null);
+            var lines = await DrainToListAsync(exec.RunAsync(new GeminiExecArgs { Input = prompt }));
+            await Assert.That(lines).Count().IsEqualTo(1);
+            using var document = JsonDocument.Parse(lines[0]);
+            await Assert.That(document.RootElement.GetProperty(JavaScriptInputPropertyName).GetString()).IsEqualTo(prompt);
+            await Assert.That(document.RootElement.GetProperty(JavaScriptArgumentsPropertyName).GetArrayLength()).IsGreaterThan(0);
+        }
+        finally
+        {
+            Directory.Delete(sandboxDirectory, recursive: true);
+        }
     }
 
     [Test]
@@ -124,7 +172,7 @@ public class GeminiExecTests
         try
         {
             var exec = new GeminiExec(
-                executablePath: "gemini",
+                executablePath: Environment.ProcessPath!,
                 environmentOverride: new Dictionary<string, string>
                 {
                     ["CUSTOM_ENV"] = "custom",
@@ -174,13 +222,11 @@ public class GeminiExecTests
             $"missing-gemini-{Guid.NewGuid():N}",
             "gemini");
 
-        var exec = new GeminiExec(missingExecutable, null, null, NullLogger.Instance);
-
-        var action = async () => await DrainAsync(exec.RunAsync(new GeminiExecArgs { Input = "test" }));
+        var action = () => new GeminiExec(missingExecutable, null, null, NullLogger.Instance);
 
         var exception = await Assert.That(action).ThrowsException();
-        await Assert.That(exception).IsTypeOf<InvalidOperationException>();
-        await Assert.That(exception!.Message).Contains("Failed to start Gemini CLI");
+        await Assert.That(exception).IsTypeOf<FileNotFoundException>();
+        await Assert.That(exception!.Message).Contains("configured Gemini CLI executable was not found");
     }
 
     [Test]
@@ -205,13 +251,6 @@ public class GeminiExecTests
         await Assert.That(lines.Any(line => line.Contains("\"type\":\"result\"", StringComparison.Ordinal))).IsTrue();
     }
 
-    private static async Task DrainAsync(IAsyncEnumerable<string> lines)
-    {
-        await foreach (var _ in lines)
-        {
-        }
-    }
-
     private static async Task<List<string>> DrainToListAsync(IAsyncEnumerable<string> lines)
     {
         var result = new List<string>();
@@ -222,6 +261,21 @@ public class GeminiExecTests
         }
 
         return result;
+    }
+
+    private static string FindExecutableInPath(string executableName)
+    {
+        var path = Environment.GetEnvironmentVariable(PathEnvironmentVariable);
+        foreach (var entry in path?.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries) ?? [])
+        {
+            var candidate = Path.Combine(entry, executableName);
+            if (File.Exists(candidate))
+            {
+                return Path.GetFullPath(candidate);
+            }
+        }
+
+        throw new FileNotFoundException(NodeExecutableMissingMessage, executableName);
     }
 
     private static bool ContainsPair(IReadOnlyList<string> args, string key, string value)

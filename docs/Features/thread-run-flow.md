@@ -46,7 +46,7 @@ Provide deterministic thread-based execution over Gemini CLI so C# consumers can
 - Optional `ILogger` (`Microsoft.Extensions.Logging`) receives process lifecycle diagnostics (start/success/failure/cancellation).
 - Structured output uses typed `StructuredOutputSchema` models that are embedded into the prompt contract and deserialized to typed DTOs; fenced JSON responses are normalized before deserialization.
 - `LocalImageInput` accepts image path, `FileInfo`, or `Stream`; stream inputs are materialized to temp files and referenced in the prompt as local `@path` inputs.
-- Gemini executable resolution is deterministic: prefer npm-vendored native binary, then PATH lookup; on Windows PATH lookup checks `gemini.exe`, `gemini.cmd`, `gemini.bat`, then `gemini`.
+- Gemini executable resolution is deterministic: a configured absolute/relative path is normalized and must exist; a configured bare name resolves by exact name on the effective PATH and never falls back to a different default command. With no configured path, prefer the npm-vendored native binary, then native executable PATH candidates, then a known `@google/gemini-cli` npm shim. Windows `.cmd`/`.bat`/`.ps1` wrappers are never started as processes: only the package adjacent to the selected local/global shim is considered, and its manifest (bounded by `CliMetadataMaximumFileCharacters`) must identify an in-package `.js` entrypoint (launched by an absolute Node/Bun executable) or native `.exe`/`.com` entrypoint. An explicit `.js` path is also run through Node/Bun. Unknown or malformed wrappers fail with an actionable error. `GeminiClient.GetCliLaunchCommand()` exposes the immutable resolved executable and literal prefix arguments; execution and metadata probes use that same descriptor and `ArgumentList`.
 - Thread options map only the current supported headless Gemini CLI flags (`model`, `resume`, `approval-mode`, `include-directories`, and the workspace sandbox toggle). `SandboxMode.ReadOnly` fails explicitly because Gemini headless mode cannot guarantee that filesystem contract. Gemini Plan approval is not a read-only sandbox: the CLI may transition out of plan mode, so it remains an independent approval setting.
 - A fresh SDK-started Gemini run with a dedicated working directory persists a resumable session file and is visible through `gemini --list-sessions` for that same project.
 - Unsupported legacy headless flags fail fast with actionable `NotSupportedException`.
@@ -92,7 +92,8 @@ Provide deterministic thread-based execution over Gemini CLI so C# consumers can
 flowchart LR
   Caller["Caller"] --> GeminiThread["GeminiThread.RunAsync / RunStreamedAsync"]
   GeminiThread --> ExecArgs["GeminiExecArgs"]
-  ExecArgs --> Cli["gemini --prompt ... --output-format stream-json"]
+  ExecArgs --> Resolve["Resolve immutable executable + prefix arguments"]
+  Resolve --> Cli["gemini --prompt ... --output-format stream-json"]
   Cli --> Stream["stream-json events"]
   Stream --> Parser["ThreadEventParser"]
   Parser --> Result["RunResult / streamed events"]

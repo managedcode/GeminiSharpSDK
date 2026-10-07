@@ -39,9 +39,10 @@ Enable GeminiSharpSDK to participate as a first-class provider in the `Microsoft
 - `ChatOptions.ModelId` maps to `ThreadOptions.Model`.
 - `ChatOptions.ConversationId` triggers thread resume via `ResumeThread(id)`.
 - Multiple `ChatMessage` entries are concatenated into a single prompt while preserving original message chronology (Gemini CLI is single-prompt-per-turn).
-- `ChatOptions.Tools` is silently ignored; tool results surface as custom `AIContent` types.
+- `ChatOptions.Tools` is silently ignored. Native activity carries fixed `ChatResponseUpdate.AdditionalProperties` categories/phases. Completed command, file-change, MCP, web-search, and collaboration items also retain their existing typed MEAI content for SDK consumers; Prostir consumes only the safe category/phase metadata and does not display raw tool fields.
 - `GetService<ChatClientMetadata>()` returns provider name `"GeminiCLI"` with default model from options.
-- Streaming maps the real CLI event sequence (`init`, `message`, `tool_use`, `tool_result`, `result`, `error`), not token-level deltas.
+- Streaming maps the real CLI event sequence (`init`, `message`, `tool_use`, `tool_result`, `result`, `error`), not token-level deltas. Role `user` messages are prompt echoes and are omitted. The pinned native CLI emits assistant `delta=true` text fragments; they stream directly while a buffer bounded by the configured process-output limit supports matching `AgentMessageItem` snapshots by exact item ID. The pinned CLI source does not emit `delta=false` assistant messages, so the adapter treats any such event as a complete segment and does not infer whole-turn cumulative semantics. Separate item IDs remain separate messages, and conflicting snapshots for the same ID fail closed.
+- Completed command, file-change, MCP, web-search, and collaboration items retain their existing typed MEAI `AIContent` and also include bounded fixed-category activity metadata. Started/updated activity events use metadata only. The Prostir consumer uses the safe category and does not display raw native tool fields.
 - Unsupported CLI options fail fast when `GeminiThread` cannot express them through the current headless contract.
 - Turn failures propagate from CLI `error` events or process/runtime failures as `InvalidOperationException`.
 
@@ -180,6 +181,8 @@ flowchart LR
 ---
 
 ## Definition of Done
+
+Native provider failures end the mapped stream only after the upstream CLI event iterator is disposed successfully. A resulting `CliExecutionFailureException` (an `InvalidOperationException` subtype) exposes the CLI exit code when present and sets `RootProcessExitConfirmed` only after root-process exit plus natural redirected-stream EOF; this does not attest to detached descendants or external effects. If iterator cleanup is uncertain, its ordinary cleanup exception takes precedence and no confirmed-failure marker is emitted.
 
 - `GeminiChatClient` implements `IChatClient` with full mapper coverage.
 - DI extensions register client correctly.
