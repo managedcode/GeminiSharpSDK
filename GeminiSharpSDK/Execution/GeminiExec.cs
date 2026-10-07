@@ -14,7 +14,6 @@ namespace ManagedCode.GeminiSharpSDK.Execution;
 
 public sealed class GeminiExec
 {
-    private const string PromptFlagAssignmentPrefix = "--prompt=";
     private const string OutputFormatFlag = "--output-format";
     private const string StreamJsonOutputFormat = "stream-json";
     private const string ModelFlag = "--model";
@@ -103,6 +102,7 @@ public sealed class GeminiExec
             _processTerminationTimeout)
         {
             MaximumProcessOutputCharacters = _maximumProcessOutputCharacters,
+            Input = args.Input,
         };
 
         return RunWithDiagnosticsAsync(invocation, args.CancellationToken);
@@ -179,7 +179,6 @@ public sealed class GeminiExec
 
         var commandArgs = new List<string>
         {
-            string.Concat(PromptFlagAssignmentPrefix, args.Input),
             OutputFormatFlag,
             StreamJsonOutputFormat,
         };
@@ -346,9 +345,13 @@ internal sealed record GeminiProcessInvocation(
 {
     public int MaximumProcessOutputCharacters { get; init; } = GeminiOptions.DefaultMaximumProcessOutputCharacters;
 
+    public string Input { get; init; } = string.Empty;
+
     public Action? StandardErrorReaderCompleted { get; init; }
 
     public Action? StandardOutputReadCompleted { get; init; }
+
+    public Action? StandardErrorOutputLimitExceeded { get; init; }
 }
 
 internal interface IGeminiProcessRunner
@@ -401,6 +404,7 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
         using var process = new Process { StartInfo = startInfo };
         Task<BoundedProcessOutput>? standardErrorTask = null;
         Task<string?>? standardOutputReadTask = null;
+        Task? standardInputWriteTask = null;
         using var outputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var standardErrorLimitExceeded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Exception? cleanupFailure = null;
@@ -423,6 +427,7 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                 invocation.MaximumProcessOutputCharacters, () =>
                 {
                     standardErrorLimitExceeded.TrySetResult(true);
+                    invocation.StandardErrorOutputLimitExceeded?.Invoke();
                     try
                     {
                         process.Kill(entireProcessTree: true);
@@ -434,15 +439,16 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
 
                     outputCancellation.Cancel();
                 }, outputCancellation.Token, invocation.StandardErrorReaderCompleted);
-            process.StandardInput.Close();
-
             var standardOutput = new BoundedProcessOutputReader(process.StandardOutput,
                 invocation.MaximumProcessOutputCharacters, invocation.StandardOutputReadCompleted);
+            standardOutputReadTask = standardOutput.ReadLineAsync(outputCancellation.Token).AsTask();
+            standardInputWriteTask = WriteStandardInputAsync(process.StandardInput, invocation.Input, outputCancellation.Token);
             while (true)
             {
-                var readLineTask = standardOutput.ReadLineAsync(outputCancellation.Token).AsTask();
-                standardOutputReadTask = readLineTask;
-                var completedTask = await Task.WhenAny(readLineTask, standardErrorLimitExceeded.Task).ConfigureAwait(false);
+                var readLineTask = standardOutputReadTask!;
+                var completedTask = standardInputWriteTask is null
+                    ? await Task.WhenAny(readLineTask, standardErrorLimitExceeded.Task).ConfigureAwait(false)
+                    : await Task.WhenAny(readLineTask, standardErrorLimitExceeded.Task, standardInputWriteTask).ConfigureAwait(false);
                 if (completedTask == standardErrorLimitExceeded.Task || standardErrorLimitExceeded.Task.IsCompleted)
                 {
                     try
@@ -463,6 +469,25 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                     throw new InvalidOperationException(ProcessOutputLimitExceededMessage);
                 }
 
+                if (standardInputWriteTask is not null && completedTask == standardInputWriteTask)
+                {
+                    try
+                    {
+                        await AwaitStandardInputWriteAsync(
+                            standardInputWriteTask,
+                            process,
+                            standardErrorTask,
+                            invocation.ProcessTerminationTimeout,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        standardInputWriteTask = null;
+                    }
+
+                    continue;
+                }
+
                 string? line;
                 try
                 {
@@ -478,10 +503,22 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                 standardOutputReadTask = null;
                 if (line is null)
                 {
+                    if (standardInputWriteTask is not null)
+                    {
+                        await AwaitStandardInputWriteAsync(
+                            standardInputWriteTask,
+                            process,
+                            standardErrorTask,
+                            invocation.ProcessTerminationTimeout,
+                            cancellationToken).ConfigureAwait(false);
+                        standardInputWriteTask = null;
+                    }
+
                     break;
                 }
 
                 yield return line;
+                standardOutputReadTask = standardOutput.ReadLineAsync(outputCancellation.Token).AsTask();
             }
 
             try
@@ -502,6 +539,7 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
         }
         finally
         {
+            var readerFailures = new List<Exception>(5);
             Exception? processExitFailure = null;
             try
             {
@@ -513,11 +551,69 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                 processExitFailure = exception;
             }
 
-            outputCancellation.Cancel();
-            process.StandardOutput.Dispose();
-            process.StandardError.Dispose();
+            try
+            {
+                process.StandardInput.BaseStream.Dispose();
+            }
+            catch (Exception exception)
+            {
+                readerFailures.Add(exception);
+            }
+
+            if (standardInputWriteTask is not null)
+            {
+                try
+                {
+                    await standardInputWriteTask.WaitAsync(invocation.ProcessTerminationTimeout, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (outputCancellation.IsCancellationRequested &&
+                                                        standardInputWriteTask.IsCanceled)
+                {
+                    // Owned I/O cancellation ends the bounded stdin pump after root termination was requested.
+                }
+                catch (IOException) when (standardErrorLimitExceeded.Task.IsCompleted &&
+                                          standardInputWriteTask.IsFaulted &&
+                                          standardInputWriteTask.Exception?.GetBaseException() is IOException)
+                {
+                    // Stderr overflow already owns the visible output-limit failure.
+                }
+                catch (Exception exception)
+                {
+                    readerFailures.Add(exception);
+                }
+            }
+
+            try
+            {
+                outputCancellation.Cancel();
+            }
+            catch (Exception exception)
+            {
+                readerFailures.Add(exception);
+            }
+
+            try
+            {
+                process.StandardOutput.Dispose();
+            }
+            catch (Exception exception)
+            {
+                readerFailures.Add(exception);
+            }
+
+            try
+            {
+                process.StandardError.Dispose();
+            }
+            catch (Exception exception)
+            {
+                readerFailures.Add(exception);
+            }
             var standardOutputFailure = await ObserveStandardOutputReadAsync(
                 standardOutputReadTask, invocation.ProcessTerminationTimeout).ConfigureAwait(false);
+            var standardOutputLimitFailureIsExpected = standardOutputReadTask is { IsFaulted: true } &&
+                standardOutputReadTask.Exception?.GetBaseException() is InvalidOperationException standardOutputLimitException &&
+                string.Equals(standardOutputLimitException.Message, ProcessOutputLimitExceededMessage, StringComparison.Ordinal);
             Exception? standardErrorFailure = null;
             if (standardErrorTask is not null)
             {
@@ -531,13 +627,15 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                 }
             }
 
-            var readerFailures = new List<Exception>(2);
-            if (standardOutputFailure is not null)
+            if (standardOutputFailure is not null && !standardOutputLimitFailureIsExpected)
             {
                 readerFailures.Add(standardOutputFailure);
             }
 
-            if (standardErrorFailure is not null)
+            var standardErrorLimitFailureIsExpected = standardErrorTask is { IsFaulted: true } &&
+                standardErrorTask.Exception?.GetBaseException() is InvalidOperationException standardErrorLimitException &&
+                string.Equals(standardErrorLimitException.Message, ProcessOutputLimitExceededMessage, StringComparison.Ordinal);
+            if (standardErrorFailure is not null && !standardErrorLimitFailureIsExpected)
             {
                 readerFailures.Add(standardErrorFailure);
             }
@@ -562,11 +660,11 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
                     ProcessAndReaderCleanupUnconfirmedMessage,
                     new AggregateException(readerFailures));
             }
-        }
 
-        if (cleanupFailure is not null)
-        {
-            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+            if (cleanupFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+            }
         }
     }
 
@@ -621,6 +719,45 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
         catch (TimeoutException exception)
         {
             throw new InvalidOperationException(StderrTerminationUnconfirmedMessage, exception);
+        }
+    }
+
+    private static async Task WriteStandardInputAsync(
+        StreamWriter standardInput,
+        string input,
+        CancellationToken cancellationToken)
+    {
+        await standardInput.WriteAsync(input.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await standardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+        standardInput.Close();
+    }
+
+    private static async Task AwaitStandardInputWriteAsync(
+        Task standardInputWriteTask,
+        Process process,
+        Task<BoundedProcessOutput> standardErrorTask,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await standardInputWriteTask.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await ThrowIfExitedWithFailureAsync(process, standardErrorTask, timeout).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception exception) when (process.HasExited)
+        {
+            await process.WaitForExitAsync(CancellationToken.None).WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+            var standardError = await ReadStandardErrorAsync(standardErrorTask, timeout).ConfigureAwait(false);
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"Gemini Exec exited with code {process.ExitCode}: {standardError.Text}");
+            }
+
+            ExceptionDispatchInfo.Capture(exception).Throw();
         }
     }
 

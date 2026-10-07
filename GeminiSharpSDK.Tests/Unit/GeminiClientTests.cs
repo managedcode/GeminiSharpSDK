@@ -344,6 +344,19 @@ public class GeminiClientTests
     }
 
     [Test]
+    public async Task GeminiCli_GetCliMetadata_RejectsNonPositiveProbeLeaseTimeout()
+    {
+        foreach (var timeout in new[] { TimeSpan.Zero, TimeSpan.FromMilliseconds(-1) })
+        {
+            using var client = new GeminiClient(new GeminiOptions { CliMetadataProbeLeaseTimeout = timeout });
+            var action = () => client.GetCliMetadata();
+            var exception = await Assert.That(action).ThrowsException();
+
+            await Assert.That(exception).IsTypeOf<ArgumentOutOfRangeException>();
+        }
+    }
+
+    [Test]
     public async Task GeminiCli_Smoke_GetCliUpdateStatus_ReturnsInstalledVersion()
     {
         using var client = new GeminiClient(new GeminiOptions());

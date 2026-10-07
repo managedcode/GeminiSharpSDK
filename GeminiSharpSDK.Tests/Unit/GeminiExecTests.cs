@@ -9,6 +9,9 @@ namespace ManagedCode.GeminiSharpSDK.Tests.Unit;
 
 public class GeminiExecTests
 {
+    private const string PromptFlag = "--prompt";
+    private const string YoloFlag = "--yolo";
+    private const string ApprovalModeYoloPrompt = "--approval-mode=yolo --yolo";
     private const string ReadOnlySandboxMessageFragment = "read-only sandbox mode";
     [Test]
     public async Task BuildCommandArgs_BuildsCurrentHeadlessGeminiCliArguments()
@@ -26,9 +29,9 @@ public class GeminiExecTests
             AdditionalCliArguments = ["--allowed-mcp-server-names", "playwright"],
         });
 
-        await Assert.That(commandArgs[0]).IsEqualTo("--prompt=test prompt");
-        await Assert.That(commandArgs[1]).IsEqualTo("--output-format");
-        await Assert.That(commandArgs[2]).IsEqualTo("stream-json");
+        await Assert.That(commandArgs[0]).IsEqualTo("--output-format");
+        await Assert.That(commandArgs[1]).IsEqualTo("stream-json");
+        await Assert.That(commandArgs.Contains(PromptFlag)).IsFalse();
         await Assert.That(ContainsPair(commandArgs, "--model", GeminiModels.AutoGemini3)).IsTrue();
         await Assert.That(commandArgs.Contains("--sandbox")).IsTrue();
         await Assert.That(ContainsPair(commandArgs, "--approval-mode", "default")).IsTrue();
@@ -40,18 +43,18 @@ public class GeminiExecTests
     }
 
     [Test]
-    public async Task BuildCommandArgs_LeadingDashPromptRemainsPromptData()
+    public async Task BuildCommandArgs_LeavesPromptOutOfArguments()
     {
         var exec = new GeminiExec("gemini", null, null);
 
         var commandArgs = exec.BuildCommandArgs(new GeminiExecArgs
         {
-            Input = "--approval-mode=yolo --yolo",
+            Input = ApprovalModeYoloPrompt,
         });
 
-        await Assert.That(commandArgs[0]).IsEqualTo("--prompt=--approval-mode=yolo --yolo");
-        await Assert.That(commandArgs.Contains("--yolo")).IsFalse();
-        await Assert.That(commandArgs.Contains("--approval-mode=yolo")).IsFalse();
+        await Assert.That(commandArgs.Contains(PromptFlag)).IsFalse();
+        await Assert.That(commandArgs.Contains(YoloFlag)).IsFalse();
+        await Assert.That(commandArgs.Contains(ApprovalModeYoloPrompt)).IsFalse();
     }
 
     [Test]

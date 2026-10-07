@@ -60,7 +60,7 @@ internal static class GeminiCliMetadataReader
 
     public static GeminiCliMetadata Read(string executablePath) =>
         Read(executablePath, EmptyEnvironment, true, DefaultProbeTimeout, DefaultMaximumOutputCharacters,
-            GeminiOptions.DefaultCliMetadataMaximumFileCharacters);
+            GeminiOptions.DefaultCliMetadataMaximumFileCharacters, GeminiOptions.DefaultCliMetadataProbeLeaseTimeout);
 
     public static GeminiCliMetadata Read(
         string executablePath,
@@ -68,13 +68,16 @@ internal static class GeminiCliMetadataReader
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
         int maximumOutputCharacters,
-        int maximumFileCharacters = GeminiOptions.DefaultCliMetadataMaximumFileCharacters)
+        int maximumFileCharacters = GeminiOptions.DefaultCliMetadataMaximumFileCharacters,
+        TimeSpan? probeLeaseTimeout = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
         ArgumentNullException.ThrowIfNull(environment);
+        var leaseTimeout = probeLeaseTimeout ?? GeminiOptions.DefaultCliMetadataProbeLeaseTimeout;
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(leaseTimeout, TimeSpan.Zero);
 
         var installedVersion = ReadInstalledVersion(executablePath, environment, inheritEnvironmentVariables,
-            probeTimeout, maximumOutputCharacters);
+            probeTimeout, maximumOutputCharacters, leaseTimeout);
         var homeDirectory = ResolveHomeDirectory(environment, inheritEnvironmentVariables);
         var defaultModel = string.IsNullOrWhiteSpace(homeDirectory)
             ? null
@@ -84,22 +87,26 @@ internal static class GeminiCliMetadataReader
     }
 
     public static GeminiCliUpdateStatus ReadUpdateStatus(string executablePath) =>
-        ReadUpdateStatus(executablePath, EmptyEnvironment, true, DefaultProbeTimeout, DefaultMaximumOutputCharacters);
+        ReadUpdateStatus(executablePath, EmptyEnvironment, true, DefaultProbeTimeout, DefaultMaximumOutputCharacters,
+            GeminiOptions.DefaultCliMetadataProbeLeaseTimeout);
 
     public static GeminiCliUpdateStatus ReadUpdateStatus(
         string executablePath,
         IReadOnlyDictionary<string, string> environment,
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
-        int maximumOutputCharacters)
+        int maximumOutputCharacters,
+        TimeSpan? probeLeaseTimeout = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
         ArgumentNullException.ThrowIfNull(environment);
+        var leaseTimeout = probeLeaseTimeout ?? GeminiOptions.DefaultCliMetadataProbeLeaseTimeout;
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(leaseTimeout, TimeSpan.Zero);
 
         var installedVersion = ReadInstalledVersion(executablePath, environment, inheritEnvironmentVariables,
-            probeTimeout, maximumOutputCharacters);
+            probeTimeout, maximumOutputCharacters, leaseTimeout);
         var probe = ProbeLatestPublishedVersion(environment, inheritEnvironmentVariables, probeTimeout,
-            maximumOutputCharacters);
+            maximumOutputCharacters, leaseTimeout);
         if (!string.IsNullOrWhiteSpace(probe.ErrorMessage))
         {
             var failureMessage = $"{UpdateCheckFailedMessagePrefix} {probe.ErrorMessage}";
@@ -326,11 +333,12 @@ internal static class GeminiCliMetadataReader
         IReadOnlyDictionary<string, string> environment,
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
-        int maximumOutputCharacters)
+        int maximumOutputCharacters,
+        TimeSpan leaseTimeout)
     {
         var probe = BoundedCliProcessProbe.Run(executablePath, [VersionFlag], environment,
             inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters,
-            leaseAcquisitionTimeout: probeTimeout);
+            leaseAcquisitionTimeout: leaseTimeout);
         if (probe.ExitCode != 0)
         {
             throw new InvalidOperationException(ProbeFailureMessage);
@@ -353,12 +361,13 @@ internal static class GeminiCliMetadataReader
         IReadOnlyDictionary<string, string> environment,
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
-        int maximumOutputCharacters)
+        int maximumOutputCharacters,
+        TimeSpan leaseTimeout)
     {
         try
         {
             var probe = RunNpmVersionProbe(environment, inheritEnvironmentVariables,
-                probeTimeout, maximumOutputCharacters);
+                probeTimeout, maximumOutputCharacters, leaseTimeout);
             if (probe.ExitCode != 0)
             {
                 return LatestVersionProbe.WithError(ProbeFailureMessage);
@@ -379,14 +388,15 @@ internal static class GeminiCliMetadataReader
         IReadOnlyDictionary<string, string> environment,
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
-        int maximumOutputCharacters)
+        int maximumOutputCharacters,
+        TimeSpan leaseTimeout)
     {
         var npmArguments = new[] { NpmViewCommand, NpmPackageName, NpmVersionProperty, NpmSilentFlag };
         if (!OperatingSystem.IsWindows())
         {
             return BoundedCliProcessProbe.Run(NpmExecutableName, npmArguments, environment,
                 inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters,
-                leaseAcquisitionTimeout: probeTimeout);
+                leaseAcquisitionTimeout: leaseTimeout);
         }
 
         var commandProcessor = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
@@ -394,7 +404,7 @@ internal static class GeminiCliMetadataReader
         return BoundedCliProcessProbe.Run(commandProcessor,
             [WindowsCommandDisableAutoRunFlag, WindowsCommandFlag, NpmWindowsScriptName, .. npmArguments],
             environment, inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters,
-            leaseAcquisitionTimeout: probeTimeout);
+            leaseAcquisitionTimeout: leaseTimeout);
     }
 
     private static string? ReadDefaultModel(string homeDirectory, int maximumCharacters)

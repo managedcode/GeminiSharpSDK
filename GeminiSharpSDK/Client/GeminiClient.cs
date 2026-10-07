@@ -62,22 +62,25 @@ public sealed class GeminiClient : IDisposable
     public GeminiCliMetadata GetCliMetadata()
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_options.CliMetadataMaximumFileCharacters);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_options.CliMetadataProbeLeaseTimeout, TimeSpan.Zero);
         var executablePath = GeminiCliLocator.FindGeminiPath(_options.GeminiExecutablePath);
         var exec = CreateExec();
         return GeminiCliMetadataReader.Read(executablePath, exec.BuildEnvironment(_options.BaseUrl, _options.ApiKey),
             _options.InheritEnvironmentVariables ?? _options.EnvironmentVariables is null,
             _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters,
-            _options.CliMetadataMaximumFileCharacters);
+            _options.CliMetadataMaximumFileCharacters, _options.CliMetadataProbeLeaseTimeout);
     }
 
     public GeminiCliUpdateStatus GetCliUpdateStatus()
     {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_options.CliMetadataProbeLeaseTimeout, TimeSpan.Zero);
         var executablePath = GeminiCliLocator.FindGeminiPath(_options.GeminiExecutablePath);
         var exec = CreateExec();
         return GeminiCliMetadataReader.ReadUpdateStatus(executablePath,
             exec.BuildEnvironment(_options.BaseUrl, _options.ApiKey),
             _options.InheritEnvironmentVariables ?? _options.EnvironmentVariables is null,
-            _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters);
+            _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters,
+            _options.CliMetadataProbeLeaseTimeout);
     }
 
     public void Dispose() => _connectionState.Dispose();
