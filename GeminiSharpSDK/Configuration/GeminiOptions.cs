@@ -7,6 +7,10 @@ public sealed record GeminiOptions
 {
     public static readonly TimeSpan DefaultProcessTerminationTimeout = TimeSpan.FromSeconds(5);
 
+    public static readonly TimeSpan DefaultCliMetadataProbeTimeout = TimeSpan.FromSeconds(10);
+
+    public const int DefaultCliMetadataMaximumOutputCharacters = 65536;
+
     public string? GeminiExecutablePath { get; init; }
 
     public string? BaseUrl { get; init; }
@@ -16,6 +20,12 @@ public sealed record GeminiOptions
     public JsonObject? Config { get; init; }
 
     public IReadOnlyDictionary<string, string>? EnvironmentVariables { get; init; }
+
+    public bool? InheritEnvironmentVariables { get; init; }
+
+    public TimeSpan CliMetadataProbeTimeout { get; init; } = DefaultCliMetadataProbeTimeout;
+
+    public int CliMetadataMaximumOutputCharacters { get; init; } = DefaultCliMetadataMaximumOutputCharacters;
 
     public TimeSpan ProcessTerminationTimeout { get; init; } = DefaultProcessTerminationTimeout;
 

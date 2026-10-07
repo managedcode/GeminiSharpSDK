@@ -21,7 +21,9 @@ public sealed class GeminiExec
     private const string IncludeDirectoriesFlag = "--include-directories";
     private const string ApprovalModeFlag = "--approval-mode";
     private const string UnsupportedHeadlessOptionsMessagePrefix =
-        "Gemini CLI 0.34.0 headless mode does not expose the requested SDK option";
+        "Gemini CLI headless mode does not expose the requested SDK option";
+    private const string UnsupportedReadOnlySandboxMessage =
+        "Gemini CLI headless mode cannot guarantee the SDK's read-only sandbox mode.";
 
     private const string InternalOriginatorEnv = "GEMINI_INTERNAL_ORIGINATOR_OVERRIDE";
     private const string CSharpSdkOriginator = "gemini_sdk_csharp";
@@ -31,6 +33,7 @@ public sealed class GeminiExec
 
     private readonly string _executablePath;
     private readonly IReadOnlyDictionary<string, string>? _environmentOverride;
+    private readonly bool _inheritEnvironmentVariables;
     private readonly JsonObject? _configOverrides;
     private readonly IGeminiProcessRunner _processRunner;
     private readonly ILogger _logger;
@@ -41,7 +44,7 @@ public sealed class GeminiExec
         IReadOnlyDictionary<string, string>? environmentOverride = null,
         JsonObject? configOverrides = null,
         ILogger? logger = null)
-        : this(executablePath, environmentOverride, configOverrides, null, logger, GeminiOptions.DefaultProcessTerminationTimeout)
+        : this(executablePath, environmentOverride, configOverrides, null, logger, GeminiOptions.DefaultProcessTerminationTimeout, null)
     {
     }
 
@@ -51,7 +54,7 @@ public sealed class GeminiExec
         IReadOnlyDictionary<string, string>? environmentOverride = null,
         JsonObject? configOverrides = null,
         ILogger? logger = null)
-        : this(executablePath, environmentOverride, configOverrides, null, logger, processTerminationTimeout)
+        : this(executablePath, environmentOverride, configOverrides, null, logger, processTerminationTimeout, null)
     {
     }
 
@@ -61,7 +64,8 @@ public sealed class GeminiExec
         JsonObject? configOverrides,
         IGeminiProcessRunner? processRunner,
         ILogger? logger = null,
-        TimeSpan? processTerminationTimeout = null)
+        TimeSpan? processTerminationTimeout = null,
+        bool? inheritEnvironmentVariables = null)
     {
         var resolvedTerminationTimeout = processTerminationTimeout ?? GeminiOptions.DefaultProcessTerminationTimeout;
         if (resolvedTerminationTimeout <= TimeSpan.Zero)
@@ -71,6 +75,7 @@ public sealed class GeminiExec
 
         _executablePath = GeminiCliLocator.FindGeminiPath(executablePath);
         _environmentOverride = environmentOverride;
+        _inheritEnvironmentVariables = inheritEnvironmentVariables ?? environmentOverride is null;
         _configOverrides = configOverrides;
         _processRunner = processRunner ?? new DefaultGeminiProcessRunner();
         _logger = logger ?? NullLogger.Instance;
@@ -176,7 +181,7 @@ public sealed class GeminiExec
             commandArgs.Add(args.Model);
         }
 
-        if (args.SandboxMode.HasValue && args.SandboxMode.Value != SandboxMode.DangerFullAccess)
+        if (args.SandboxMode == SandboxMode.WorkspaceWrite)
         {
             commandArgs.Add(SandboxFlag);
         }
@@ -218,14 +223,7 @@ public sealed class GeminiExec
     {
         var environment = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        if (_environmentOverride is not null)
-        {
-            foreach (var (key, value) in _environmentOverride)
-            {
-                environment[key] = value;
-            }
-        }
-        else
+        if (_inheritEnvironmentVariables)
         {
             foreach (DictionaryEntry variable in Environment.GetEnvironmentVariables())
             {
@@ -233,6 +231,14 @@ public sealed class GeminiExec
                 {
                     environment[key] = value;
                 }
+            }
+        }
+
+        if (_environmentOverride is not null)
+        {
+            foreach (var (key, value) in _environmentOverride)
+            {
+                environment[key] = value;
             }
         }
 
@@ -278,6 +284,11 @@ public sealed class GeminiExec
 
     private void ValidateSupportedArgs(GeminiExecArgs args)
     {
+        if (args.SandboxMode == SandboxMode.ReadOnly)
+        {
+            throw new NotSupportedException(UnsupportedReadOnlySandboxMessage);
+        }
+
         ThrowIfUnsupported(args.Images is { Count: > 0 }, nameof(GeminiExecArgs.Images));
         ThrowIfUnsupported(!string.IsNullOrWhiteSpace(args.Profile), nameof(GeminiExecArgs.Profile));
         ThrowIfUnsupported(args.UseOss, nameof(GeminiExecArgs.UseOss));
@@ -497,6 +508,14 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
 
 internal static class CliValueExtensions
 {
+    private const string UnsupportedSandboxValueMessage =
+        "Gemini CLI represents sandbox modes as execution flags rather than string values.";
+    private const string UnsupportedReasoningEffortMessage =
+        "The installed Gemini CLI headless mode does not expose model reasoning effort.";
+    private const string UnsupportedWebSearchModeMessage =
+        "The installed Gemini CLI headless mode does not expose web search mode.";
+    private const string UnsupportedApprovalModeMessage =
+        "The installed Gemini CLI does not provide this approval mode.";
     private const string ApprovalDefault = "default";
     private const string ApprovalAutoEdit = "auto_edit";
     private const string ApprovalYolo = "yolo";
@@ -511,18 +530,17 @@ internal static class CliValueExtensions
 
     public static string ToCliValue(this SandboxMode mode)
     {
-        throw new NotSupportedException($"Sandbox mode '{mode}' is represented as a boolean flag in Gemini CLI 0.34.0.");
+        throw new NotSupportedException(UnsupportedSandboxValueMessage);
     }
 
     public static string ToCliValue(this ModelReasoningEffort effort)
     {
-        throw new NotSupportedException(
-            $"Model reasoning effort '{effort}' is not exposed as a Gemini CLI 0.34.0 headless flag.");
+        throw new NotSupportedException(UnsupportedReasoningEffortMessage);
     }
 
     public static string ToCliValue(this WebSearchMode mode)
     {
-        throw new NotSupportedException($"Web search mode '{mode}' is not exposed as a Gemini CLI 0.34.0 headless flag.");
+        throw new NotSupportedException(UnsupportedWebSearchModeMessage);
     }
 
     public static string ToCliValue(this ApprovalMode mode)
@@ -534,9 +552,9 @@ internal static class CliValueExtensions
             ApprovalMode.Yolo => ApprovalYolo,
             ApprovalMode.Plan => ApprovalPlan,
             ApprovalMode.OnRequest => ApprovalDefault,
-            ApprovalMode.Never => throw new NotSupportedException("Gemini CLI 0.34.0 does not provide a 'never' approval mode."),
-            ApprovalMode.OnFailure => throw new NotSupportedException("Gemini CLI 0.34.0 does not provide an 'on-failure' approval mode."),
-            ApprovalMode.Untrusted => throw new NotSupportedException("Gemini CLI 0.34.0 does not provide an 'untrusted' approval mode."),
+            ApprovalMode.Never => throw new NotSupportedException(UnsupportedApprovalModeMessage),
+            ApprovalMode.OnFailure => throw new NotSupportedException(UnsupportedApprovalModeMessage),
+            ApprovalMode.Untrusted => throw new NotSupportedException(UnsupportedApprovalModeMessage),
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
         };
     }

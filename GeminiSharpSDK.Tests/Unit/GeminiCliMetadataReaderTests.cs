@@ -1,10 +1,15 @@
 using System.Text.Json;
 using ManagedCode.GeminiSharpSDK.Internal;
+using ManagedCode.GeminiSharpSDK.Models;
 
 namespace ManagedCode.GeminiSharpSDK.Tests.Unit;
 
 public class GeminiCliMetadataReaderTests
 {
+    private const string GeminiNpmUpdateCommand = "npm install --global @google/gemini-cli@latest";
+    private const string GeminiBunUpdateCommand = "bun add --global @google/gemini-cli@latest";
+    private const string UserInstallExecutablePath = "/usr/local/bin/gemini";
+    private const string SettingsJson = "{ \"model\": { \"name\": \"" + GeminiModels.Gemini35Flash + "\" } }";
     [Test]
     public async Task ParseInstalledVersion_ReturnsVersionTokenForGeminiCliOutput()
     {
@@ -69,7 +74,7 @@ public class GeminiCliMetadataReaderTests
 
         var command = GeminiCliMetadataReader.ResolveUpdateCommand(executablePath);
 
-        await Assert.That(command).IsEqualTo("bun add --global /gemini-cli@latest");
+        await Assert.That(command).IsEqualTo(GeminiBunUpdateCommand);
     }
 
     [Test]
@@ -81,7 +86,7 @@ public class GeminiCliMetadataReaderTests
             executablePath,
             npmUserAgent: "bun/1.2.0 npm/? node/v20.0.0");
 
-        await Assert.That(command).IsEqualTo("bun add --global /gemini-cli@latest");
+        await Assert.That(command).IsEqualTo(GeminiBunUpdateCommand);
     }
 
     [Test]
@@ -91,7 +96,34 @@ public class GeminiCliMetadataReaderTests
 
         var command = GeminiCliMetadataReader.ResolveUpdateCommand(executablePath, npmUserAgent: "npm/10.0.0");
 
-        await Assert.That(command).IsEqualTo("npm install --global /gemini-cli@latest");
+        await Assert.That(command).IsEqualTo(GeminiNpmUpdateCommand);
+    }
+
+    [Test]
+    public async Task ResolveUpdateCommand_DoesNotConsultParentEnvironmentWhenDisabled()
+    {
+        var command = GeminiCliMetadataReader.ResolveUpdateCommand(
+            UserInstallExecutablePath,
+            npmUserAgent: null,
+            bunInstallRoot: null,
+            useProcessEnvironmentFallback: false);
+
+        await Assert.That(command).IsEqualTo(GeminiNpmUpdateCommand);
+    }
+
+    [Test]
+    public async Task ParseDefaultModelFromSettingsJson_ReadsNativeModelName()
+    {
+        var parsed = GeminiCliMetadataReader.ParseDefaultModelFromSettingsJson(SettingsJson);
+
+        await Assert.That(parsed).IsEqualTo(GeminiModels.Gemini35Flash);
+    }
+
+    [Test]
+    public async Task KnownModels_ContainsCurrentCliModelCatalog()
+    {
+        await Assert.That(GeminiModels.Known).Contains(GeminiModels.Gemini35Flash);
+        await Assert.That(GeminiModels.Known).Contains(GeminiModels.Gemini31FlashLite);
     }
 
     [Test]

@@ -27,4 +27,23 @@ public static class GeminiModels
     public const string AliasPro = "pro";
     public const string AliasFlash = "flash";
     public const string AliasFlashLite = "flash-lite";
+
+    public static IReadOnlyList<string> Known { get; } = Array.AsReadOnly<string>(
+    [
+        Gemini25Pro,
+        Gemini25Flash,
+        Gemini25FlashLite,
+        Gemini35Flash,
+        Gemini38Flash,
+        Gemini3Flash,
+        Gemini31FlashLite,
+        Gemini35FlashLite,
+        Gemini3ProPreview,
+        Gemini31ProPreview,
+        Gemini31ProPreviewCustomTools,
+        Gemini3FlashPreview,
+        Gemini31FlashLitePreview,
+        GeminiGemma431BIt,
+        GeminiGemma426BA4BIt
+    ]);
 }

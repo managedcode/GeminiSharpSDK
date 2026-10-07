@@ -47,7 +47,7 @@ Provide deterministic thread-based execution over Gemini CLI so C# consumers can
 - Structured output uses typed `StructuredOutputSchema` models that are embedded into the prompt contract and deserialized to typed DTOs; fenced JSON responses are normalized before deserialization.
 - `LocalImageInput` accepts image path, `FileInfo`, or `Stream`; stream inputs are materialized to temp files and referenced in the prompt as local `@path` inputs.
 - Gemini executable resolution is deterministic: prefer npm-vendored native binary, then PATH lookup; on Windows PATH lookup checks `gemini.exe`, `gemini.cmd`, `gemini.bat`, then `gemini`.
-- Thread options map only the current supported headless Gemini CLI flags (`model`, `resume`, `approval-mode`, `include-directories`, sandbox toggle), plus raw `AdditionalCliArguments` passthrough for forward-compatible flags.
+- Thread options map only the current supported headless Gemini CLI flags (`model`, `resume`, `approval-mode`, `include-directories`, and the workspace sandbox toggle). `SandboxMode.ReadOnly` fails explicitly because Gemini headless mode cannot guarantee that filesystem contract. Gemini Plan approval is not a read-only sandbox: the CLI may transition out of plan mode, so it remains an independent approval setting.
 - A fresh SDK-started Gemini run with a dedicated working directory persists a resumable session file and is visible through `gemini --list-sessions` for that same project.
 - Unsupported legacy headless flags fail fast with actionable `NotSupportedException`.
 - Cleanup failures are never silently swallowed; process/schema/image cleanup issues are logged through `ILogger`.

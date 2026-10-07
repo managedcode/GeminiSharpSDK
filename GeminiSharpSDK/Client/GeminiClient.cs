@@ -62,13 +62,20 @@ public sealed class GeminiClient : IDisposable
     public GeminiCliMetadata GetCliMetadata()
     {
         var executablePath = GeminiCliLocator.FindGeminiPath(_options.GeminiExecutablePath);
-        return GeminiCliMetadataReader.Read(executablePath);
+        var exec = CreateExec();
+        return GeminiCliMetadataReader.Read(executablePath, exec.BuildEnvironment(_options.BaseUrl, _options.ApiKey),
+            _options.InheritEnvironmentVariables ?? _options.EnvironmentVariables is null,
+            _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters);
     }
 
     public GeminiCliUpdateStatus GetCliUpdateStatus()
     {
         var executablePath = GeminiCliLocator.FindGeminiPath(_options.GeminiExecutablePath);
-        return GeminiCliMetadataReader.ReadUpdateStatus(executablePath);
+        var exec = CreateExec();
+        return GeminiCliMetadataReader.ReadUpdateStatus(executablePath,
+            exec.BuildEnvironment(_options.BaseUrl, _options.ApiKey),
+            _options.InheritEnvironmentVariables ?? _options.EnvironmentVariables is null,
+            _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters);
     }
 
     public void Dispose() => _connectionState.Dispose();
@@ -78,11 +85,13 @@ public sealed class GeminiClient : IDisposable
     private GeminiExec CreateExec()
     {
         return new GeminiExec(
-            _options.ProcessTerminationTimeout,
             _options.GeminiExecutablePath,
             _options.EnvironmentVariables,
             _options.Config,
-            _options.Logger);
+            null,
+            _options.Logger,
+            _options.ProcessTerminationTimeout,
+            _options.InheritEnvironmentVariables);
     }
 
     private static GeminiClientOptions CreateClientOptions(GeminiOptions options)

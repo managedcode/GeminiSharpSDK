@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using ManagedCode.GeminiSharpSDK.Models;
@@ -7,15 +6,24 @@ namespace ManagedCode.GeminiSharpSDK.Internal;
 
 internal static class GeminiCliMetadataReader
 {
+    private static readonly IReadOnlyDictionary<string, string> EmptyEnvironment = new Dictionary<string, string>(StringComparer.Ordinal);
+    private static readonly TimeSpan DefaultProbeTimeout = TimeSpan.FromSeconds(10);
+    private const int DefaultMaximumOutputCharacters = 65536;
+    private const string ProbeFailureMessage = "Gemini CLI metadata probe failed.";
+    private const string InvalidProbeOutputMessage = "Gemini CLI metadata probe returned invalid output.";
     private const string VersionFlag = "--version";
     private const string CliVersionPrefix = "gemini-cli";
     private const string NpmExecutableName = "npm";
+    private const string NpmWindowsScriptName = "npm.cmd";
+    private const string WindowsCommandProcessorName = "cmd.exe";
+    private const string WindowsCommandDisableAutoRunFlag = "/d";
+    private const string WindowsCommandFlag = "/c";
     private const string NpmViewCommand = "view";
-    private const string NpmPackageName = "/gemini-cli";
+    private const string NpmPackageName = "@google/gemini-cli";
     private const string NpmVersionProperty = "version";
     private const string NpmSilentFlag = "--silent";
-    private const string NpmGlobalUpdateCommand = "npm install --global /gemini-cli@latest";
-    private const string BunGlobalUpdateCommand = "bun add --global /gemini-cli@latest";
+    private const string NpmGlobalUpdateCommand = "npm install --global @google/gemini-cli@latest";
+    private const string BunGlobalUpdateCommand = "bun add --global @google/gemini-cli@latest";
     private const string NpmUserAgentEnvironmentVariable = "npm_config_user_agent";
     private const string BunInstallEnvironmentVariable = "BUN_INSTALL";
     private const string BunUserAgentPrefix = "bun/";
@@ -24,8 +32,12 @@ internal static class GeminiCliMetadataReader
     private const string UpdateCheckFailedMessagePrefix = "Failed to check latest Gemini CLI version from npm:";
 
     private const string DotGeminiDirectory = ".gemini";
-    private const string ModelsCacheFileName = "models_cache.json";
-    private const string ConfigFileName = "config.toml";
+    private const string SettingsFileName = "settings.json";
+    private const string GeminiCliHomeEnvironmentVariable = "GEMINI_CLI_HOME";
+    private const string HomeEnvironmentVariable = "HOME";
+    private const string UserProfileEnvironmentVariable = "USERPROFILE";
+    private const string ModelPropertyName = "model";
+    private const string ModelNamePropertyName = "name";
 
     private const string ModelsPropertyName = "models";
     private const string SlugPropertyName = "slug";
@@ -45,28 +57,44 @@ internal static class GeminiCliMetadataReader
     private const char Escape = '\\';
     private const char SectionPrefix = '[';
 
-    public static GeminiCliMetadata Read(string executablePath)
+    public static GeminiCliMetadata Read(string executablePath) =>
+        Read(executablePath, EmptyEnvironment, true, DefaultProbeTimeout, DefaultMaximumOutputCharacters);
+
+    public static GeminiCliMetadata Read(
+        string executablePath,
+        IReadOnlyDictionary<string, string> environment,
+        bool inheritEnvironmentVariables,
+        TimeSpan probeTimeout,
+        int maximumOutputCharacters)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
+        ArgumentNullException.ThrowIfNull(environment);
 
-        var installedVersion = ReadInstalledVersion(executablePath);
-        var homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrWhiteSpace(homeDirectory))
-        {
-            return new GeminiCliMetadata(installedVersion, null, []);
-        }
-
-        var defaultModel = ReadDefaultModel(homeDirectory);
-        var models = ReadModels(homeDirectory);
+        var installedVersion = ReadInstalledVersion(executablePath, environment, inheritEnvironmentVariables,
+            probeTimeout, maximumOutputCharacters);
+        var homeDirectory = ResolveHomeDirectory(environment, inheritEnvironmentVariables);
+        var defaultModel = string.IsNullOrWhiteSpace(homeDirectory) ? null : ReadDefaultModel(homeDirectory);
+        var models = ReadKnownModels();
         return new GeminiCliMetadata(installedVersion, defaultModel, models);
     }
 
-    public static GeminiCliUpdateStatus ReadUpdateStatus(string executablePath)
+    public static GeminiCliUpdateStatus ReadUpdateStatus(string executablePath) =>
+        ReadUpdateStatus(executablePath, EmptyEnvironment, true, DefaultProbeTimeout, DefaultMaximumOutputCharacters);
+
+    public static GeminiCliUpdateStatus ReadUpdateStatus(
+        string executablePath,
+        IReadOnlyDictionary<string, string> environment,
+        bool inheritEnvironmentVariables,
+        TimeSpan probeTimeout,
+        int maximumOutputCharacters)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
+        ArgumentNullException.ThrowIfNull(environment);
 
-        var installedVersion = ReadInstalledVersion(executablePath);
-        var probe = ProbeLatestPublishedVersion();
+        var installedVersion = ReadInstalledVersion(executablePath, environment, inheritEnvironmentVariables,
+            probeTimeout, maximumOutputCharacters);
+        var probe = ProbeLatestPublishedVersion(environment, inheritEnvironmentVariables, probeTimeout,
+            maximumOutputCharacters);
         if (!string.IsNullOrWhiteSpace(probe.ErrorMessage))
         {
             var failureMessage = $"{UpdateCheckFailedMessagePrefix} {probe.ErrorMessage}";
@@ -84,7 +112,10 @@ internal static class GeminiCliMetadataReader
             return new GeminiCliUpdateStatus(installedVersion, probe.LatestVersion, false, null, null);
         }
 
-        var updateCommand = ResolveUpdateCommand(executablePath);
+        var updateCommand = ResolveUpdateCommand(executablePath,
+            environment.GetValueOrDefault(NpmUserAgentEnvironmentVariable),
+            environment.GetValueOrDefault(BunInstallEnvironmentVariable),
+            inheritEnvironmentVariables);
         var message =
             $"{UpdateAvailableMessagePrefix} installed {installedVersion}, latest {probe.LatestVersion}. Run '{updateCommand}'.";
         return new GeminiCliUpdateStatus(
@@ -159,7 +190,8 @@ internal static class GeminiCliMetadataReader
     internal static string ResolveUpdateCommand(
         string executablePath,
         string? npmUserAgent = null,
-        string? bunInstallRoot = null)
+        string? bunInstallRoot = null,
+        bool useProcessEnvironmentFallback = true)
     {
         if (string.IsNullOrWhiteSpace(executablePath))
         {
@@ -171,7 +203,7 @@ internal static class GeminiCliMetadataReader
             return BunGlobalUpdateCommand;
         }
 
-        var resolvedUserAgent = string.IsNullOrWhiteSpace(npmUserAgent)
+        var resolvedUserAgent = string.IsNullOrWhiteSpace(npmUserAgent) && useProcessEnvironmentFallback
             ? Environment.GetEnvironmentVariable(NpmUserAgentEnvironmentVariable)
             : npmUserAgent;
         if (IsBunUserAgent(resolvedUserAgent))
@@ -179,7 +211,7 @@ internal static class GeminiCliMetadataReader
             return BunGlobalUpdateCommand;
         }
 
-        var resolvedBunInstallRoot = string.IsNullOrWhiteSpace(bunInstallRoot)
+        var resolvedBunInstallRoot = string.IsNullOrWhiteSpace(bunInstallRoot) && useProcessEnvironmentFallback
             ? Environment.GetEnvironmentVariable(BunInstallEnvironmentVariable)
             : bunInstallRoot;
         if (IsPathUnderRoot(executablePath, resolvedBunInstallRoot))
@@ -284,96 +316,82 @@ internal static class GeminiCliMetadataReader
         return models;
     }
 
-    private static string ReadInstalledVersion(string executablePath)
+    private static string ReadInstalledVersion(
+        string executablePath,
+        IReadOnlyDictionary<string, string> environment,
+        bool inheritEnvironmentVariables,
+        TimeSpan probeTimeout,
+        int maximumOutputCharacters)
     {
-        var startInfo = new ProcessStartInfo(executablePath)
+        var probe = BoundedCliProcessProbe.Run(executablePath, [VersionFlag], environment,
+            inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters);
+        if (probe.ExitCode != 0)
         {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        startInfo.ArgumentList.Add(VersionFlag);
+            throw new InvalidOperationException(ProbeFailureMessage);
+        }
 
-        using var process = new Process { StartInfo = startInfo };
+        var versionOutput = string.IsNullOrWhiteSpace(probe.StandardOutput)
+            ? probe.StandardError
+            : probe.StandardOutput;
         try
         {
-            if (!process.Start())
-            {
-                throw new InvalidOperationException($"Failed to start Gemini CLI at '{executablePath}' to read version.");
-            }
+            return ParseInstalledVersion(versionOutput);
         }
-        catch (Exception exception)
+        catch (InvalidOperationException)
         {
-            throw new InvalidOperationException($"Failed to start Gemini CLI at '{executablePath}' to read version.", exception);
+            throw new InvalidOperationException(InvalidProbeOutputMessage);
         }
-
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException($"Failed to read Gemini CLI version from '{executablePath}'. Exit code {process.ExitCode}: {standardError}");
-        }
-
-        var versionOutput = string.IsNullOrWhiteSpace(standardOutput)
-            ? standardError
-            : standardOutput;
-        return ParseInstalledVersion(versionOutput);
     }
 
-    private static LatestVersionProbe ProbeLatestPublishedVersion()
+    private static LatestVersionProbe ProbeLatestPublishedVersion(
+        IReadOnlyDictionary<string, string> environment,
+        bool inheritEnvironmentVariables,
+        TimeSpan probeTimeout,
+        int maximumOutputCharacters)
     {
-        var startInfo = new ProcessStartInfo(NpmExecutableName)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        startInfo.ArgumentList.Add(NpmViewCommand);
-        startInfo.ArgumentList.Add(NpmPackageName);
-        startInfo.ArgumentList.Add(NpmVersionProperty);
-        startInfo.ArgumentList.Add(NpmSilentFlag);
-
-        using var process = new Process { StartInfo = startInfo };
         try
         {
-            if (!process.Start())
+            var probe = RunNpmVersionProbe(environment, inheritEnvironmentVariables,
+                probeTimeout, maximumOutputCharacters);
+            if (probe.ExitCode != 0)
             {
-                return LatestVersionProbe.WithError("npm process did not start.");
+                return LatestVersionProbe.WithError(ProbeFailureMessage);
             }
+
+            var latestVersion = ParseLatestPublishedVersion(probe.StandardOutput);
+            return string.IsNullOrWhiteSpace(latestVersion)
+                ? LatestVersionProbe.WithError(InvalidProbeOutputMessage)
+                : LatestVersionProbe.WithLatest(latestVersion);
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            return LatestVersionProbe.WithError(exception.Message);
+            return LatestVersionProbe.WithError(ProbeFailureMessage);
         }
+    }
 
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
+    private static CliProcessProbeResult RunNpmVersionProbe(
+        IReadOnlyDictionary<string, string> environment,
+        bool inheritEnvironmentVariables,
+        TimeSpan probeTimeout,
+        int maximumOutputCharacters)
+    {
+        var npmArguments = new[] { NpmViewCommand, NpmPackageName, NpmVersionProperty, NpmSilentFlag };
+        if (!OperatingSystem.IsWindows())
         {
-            var errorText = string.IsNullOrWhiteSpace(standardError)
-                ? standardOutput
-                : standardError;
-            return LatestVersionProbe.WithError(errorText.Trim());
+            return BoundedCliProcessProbe.Run(NpmExecutableName, npmArguments, environment,
+                inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters);
         }
 
-        var latestVersion = ParseLatestPublishedVersion(standardOutput);
-        if (string.IsNullOrWhiteSpace(latestVersion))
-        {
-            return LatestVersionProbe.WithError("npm output did not contain a valid semantic version.");
-        }
-
-        return LatestVersionProbe.WithLatest(latestVersion);
+        var commandProcessor = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+            WindowsCommandProcessorName);
+        return BoundedCliProcessProbe.Run(commandProcessor,
+            [WindowsCommandDisableAutoRunFlag, WindowsCommandFlag, NpmWindowsScriptName, .. npmArguments],
+            environment, inheritEnvironmentVariables, probeTimeout, maximumOutputCharacters);
     }
 
     private static string? ReadDefaultModel(string homeDirectory)
     {
-        var configPath = Path.Combine(homeDirectory, DotGeminiDirectory, ConfigFileName);
+        var configPath = Path.Combine(homeDirectory, DotGeminiDirectory, SettingsFileName);
         if (!File.Exists(configPath))
         {
             return null;
@@ -381,44 +399,84 @@ internal static class GeminiCliMetadataReader
 
         try
         {
-            return ParseDefaultModelFromTomlLines(File.ReadLines(configPath));
+            return ParseDefaultModelFromSettingsJson(File.ReadAllText(configPath));
         }
-        catch (IOException exception)
+        catch (IOException)
         {
-            throw new InvalidOperationException($"Failed to read Gemini config at '{configPath}'.", exception);
+            return null;
         }
-        catch (UnauthorizedAccessException exception)
+        catch (UnauthorizedAccessException)
         {
-            throw new InvalidOperationException($"Failed to read Gemini config at '{configPath}'.", exception);
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 
-    private static IReadOnlyList<GeminiModelMetadata> ReadModels(string homeDirectory)
+    private static string ResolveHomeDirectory(
+        IReadOnlyDictionary<string, string> environment,
+        bool inheritEnvironmentVariables)
     {
-        var modelsCachePath = Path.Combine(homeDirectory, DotGeminiDirectory, ModelsCacheFileName);
-        if (!File.Exists(modelsCachePath))
+        if (environment.TryGetValue(GeminiCliHomeEnvironmentVariable, out var cliHome) &&
+            !string.IsNullOrWhiteSpace(cliHome))
         {
-            return [];
+            return cliHome;
         }
 
-        try
+        if (inheritEnvironmentVariables &&
+            !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(GeminiCliHomeEnvironmentVariable)))
         {
-            using var stream = File.OpenRead(modelsCachePath);
-            using var document = JsonDocument.Parse(stream);
-            return ParseModelsCache(document.RootElement);
+            return Environment.GetEnvironmentVariable(GeminiCliHomeEnvironmentVariable)!;
         }
-        catch (IOException exception)
+
+        if (environment.TryGetValue(HomeEnvironmentVariable, out var home) && !string.IsNullOrWhiteSpace(home))
         {
-            throw new InvalidOperationException($"Failed to read Gemini model cache at '{modelsCachePath}'.", exception);
+            return home;
         }
-        catch (UnauthorizedAccessException exception)
+
+        if (environment.TryGetValue(UserProfileEnvironmentVariable, out var profile) && !string.IsNullOrWhiteSpace(profile))
         {
-            throw new InvalidOperationException($"Failed to read Gemini model cache at '{modelsCachePath}'.", exception);
+            return profile;
         }
-        catch (JsonException exception)
+
+        if (inheritEnvironmentVariables)
         {
-            throw new InvalidOperationException($"Failed to parse Gemini model cache at '{modelsCachePath}'.", exception);
+            var inheritedHome = Environment.GetEnvironmentVariable(HomeEnvironmentVariable);
+            if (!string.IsNullOrWhiteSpace(inheritedHome))
+            {
+                return inheritedHome;
+            }
+
+            var inheritedProfile = Environment.GetEnvironmentVariable(UserProfileEnvironmentVariable);
+            if (!string.IsNullOrWhiteSpace(inheritedProfile))
+            {
+                return inheritedProfile;
+            }
         }
+
+        return inheritEnvironmentVariables ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : string.Empty;
+    }
+
+    private static GeminiModelMetadata[] ReadKnownModels() =>
+        GeminiModels.Known.Select(static slug => new GeminiModelMetadata(
+            slug, slug, null, true, false, Array.Empty<string>())).ToArray();
+
+    internal static string? ParseDefaultModelFromSettingsJson(string settingsJson)
+    {
+        ArgumentNullException.ThrowIfNull(settingsJson);
+        using var document = JsonDocument.Parse(settingsJson);
+        if (!document.RootElement.TryGetProperty(ModelPropertyName, out var model) ||
+            model.ValueKind != JsonValueKind.Object ||
+            !model.TryGetProperty(ModelNamePropertyName, out var name) ||
+            name.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var value = name.GetString();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     private static List<string> ReadReasoningEfforts(JsonElement modelElement)

@@ -1,5 +1,6 @@
 using ManagedCode.GeminiSharpSDK.Client;
 using ManagedCode.GeminiSharpSDK.Configuration;
+using ManagedCode.GeminiSharpSDK.Internal;
 using ManagedCode.GeminiSharpSDK.Models;
 using ManagedCode.GeminiSharpSDK.Tests.Shared;
 using ManagedCode.GeminiSharpSDK.Tests.TestSupport;
@@ -8,6 +9,22 @@ namespace ManagedCode.GeminiSharpSDK.Tests.Unit;
 
 public class GeminiClientTests
 {
+    private const string NpmFixtureSkipReason = "The npm.cmd invocation fixture is Windows-specific.";
+    private const string NpmFixtureDirectoryPrefix = "GeminiNpmProbe-";
+    private const string NpmFixtureScriptFileName = "npm.cmd";
+    private const string NpmFixtureArgumentsFileName = "npm-arguments.txt";
+    private const string NpmFixtureVersionOutput = "99.0.0";
+    private const string NpmFixtureExpectedArguments = "view @google/gemini-cli version --silent";
+    private const string NpmFixtureScriptContent = "@echo off\r\necho %*>> \"%SDK_NPM_ARGS_FILE%\"\r\necho " + NpmFixtureVersionOutput + "\r\n";
+    private const string NpmArgumentsEnvironmentVariable = "SDK_NPM_ARGS_FILE";
+    private const string SystemRootEnvironmentVariable = "SystemRoot";
+    private const string MetadataSandboxPrefix = "GeminiClientMetadata-";
+    private const string PathEnvironmentVariable = "PATH";
+    private const string GeminiCliHomeEnvironmentVariable = "GEMINI_CLI_HOME";
+    private const string DotGeminiDirectoryName = ".gemini";
+    private const string GeminiSettingsFileName = "settings.json";
+    private const string GeminiSettingsFixture =
+        "{ \"model\": { \"name\": \"" + GeminiModels.Gemini35Flash + "\" } }";
     private const string ResumeSandboxPrefix = "GeminiClientTests-ResumeThread-";
     private static readonly TimeSpan SandboxCommandTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan MultiTurnTimeout = TimeSpan.FromMinutes(3);
@@ -245,6 +262,40 @@ public class GeminiClientTests
     }
 
     [Test]
+    public async Task GeminiCli_GetCliMetadata_UsesNativeSettingsAndKnownCatalogWithEnvironmentAllowlist()
+    {
+        var cliHome = CreateMetadataSandbox();
+        var configDirectory = Path.Combine(cliHome, DotGeminiDirectoryName);
+        Directory.CreateDirectory(configDirectory);
+        try
+        {
+            File.WriteAllText(Path.Combine(configDirectory, GeminiSettingsFileName), GeminiSettingsFixture);
+            using var client = new GeminiClient(new GeminiOptions
+            {
+                GeminiExecutablePath = GeminiCliLocator.FindGeminiPath(null),
+                EnvironmentVariables = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [PathEnvironmentVariable] = Environment.GetEnvironmentVariable(PathEnvironmentVariable) ?? string.Empty,
+                    [GeminiCliHomeEnvironmentVariable] = cliHome,
+                },
+                InheritEnvironmentVariables = false,
+            });
+
+            var metadata = client.GetCliMetadata();
+
+            await Assert.That(metadata.DefaultModel).IsEqualTo(GeminiModels.Gemini35Flash);
+            await Assert.That(metadata.Models.Any(model => model.Slug == GeminiModels.Gemini35Flash)).IsTrue();
+            await Assert.That(metadata.Models.Any(model => model.Slug == GeminiModels.Gemini31FlashLite)).IsTrue();
+            await Assert.That(metadata.Models.Single(model => model.Slug == GeminiModels.Gemini35Flash).IsApiSupported)
+                .IsFalse();
+        }
+        finally
+        {
+            Directory.Delete(cliHome, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task GeminiCli_Smoke_GetCliUpdateStatus_ReturnsInstalledVersion()
     {
         using var client = new GeminiClient(new GeminiOptions());
@@ -253,6 +304,56 @@ public class GeminiClientTests
 
         await Assert.That(string.IsNullOrWhiteSpace(status.InstalledVersion)).IsFalse();
         await Assert.That(status.InstalledVersion.Contains('.')).IsTrue();
+    }
+
+    [Test]
+    public async Task GeminiCli_UpdateStatus_InvokesScopedNpmPackageThroughWindowsCommandProcessor()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Skip.Test(NpmFixtureSkipReason);
+            return;
+        }
+
+        var sandbox = Path.Combine(Environment.CurrentDirectory, "tests", ".sandbox",
+            $"{NpmFixtureDirectoryPrefix}{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sandbox);
+        var npmScriptPath = Path.Combine(sandbox, NpmFixtureScriptFileName);
+        var argumentsPath = Path.Combine(sandbox, NpmFixtureArgumentsFileName);
+        try
+        {
+            File.WriteAllText(npmScriptPath, NpmFixtureScriptContent);
+            using var client = new GeminiClient(new GeminiOptions
+            {
+                GeminiExecutablePath = GeminiCliLocator.FindGeminiPath(null),
+                InheritEnvironmentVariables = false,
+                EnvironmentVariables = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [PathEnvironmentVariable] = string.Concat(sandbox, Path.PathSeparator,
+                        Environment.GetEnvironmentVariable(PathEnvironmentVariable)),
+                    [SystemRootEnvironmentVariable] = Environment.GetEnvironmentVariable(SystemRootEnvironmentVariable) ?? string.Empty,
+                    [NpmArgumentsEnvironmentVariable] = argumentsPath,
+                },
+            });
+
+            var status = client.GetCliUpdateStatus();
+
+            await Assert.That(status.LatestVersion).IsEqualTo(NpmFixtureVersionOutput);
+            await Assert.That(status.IsUpdateAvailable).IsTrue();
+            await Assert.That(File.ReadAllText(argumentsPath).Trim()).IsEqualTo(NpmFixtureExpectedArguments);
+        }
+        finally
+        {
+            Directory.Delete(sandbox, recursive: true);
+        }
+    }
+
+    private static string CreateMetadataSandbox()
+    {
+        var sandbox = Path.Combine(Environment.CurrentDirectory, "tests", ".sandbox",
+            $"{MetadataSandboxPrefix}{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sandbox);
+        return sandbox;
     }
 
     [Test]

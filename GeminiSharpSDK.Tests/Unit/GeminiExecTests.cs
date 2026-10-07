@@ -9,6 +9,7 @@ namespace ManagedCode.GeminiSharpSDK.Tests.Unit;
 
 public class GeminiExecTests
 {
+    private const string ReadOnlySandboxMessageFragment = "read-only sandbox mode";
     [Test]
     public async Task BuildCommandArgs_BuildsCurrentHeadlessGeminiCliArguments()
     {
@@ -51,6 +52,21 @@ public class GeminiExecTests
         });
 
         await Assert.That(commandArgs.Contains("--sandbox")).IsFalse();
+    }
+
+    [Test]
+    public async Task BuildCommandArgs_ReadOnlySandboxFailsInsteadOfUsingPlanMode()
+    {
+        var exec = new GeminiExec("gemini", null, null);
+
+        var exception = await Assert.That(() => exec.BuildCommandArgs(new GeminiExecArgs
+        {
+            Input = "test",
+            SandboxMode = SandboxMode.ReadOnly,
+        })).ThrowsException();
+
+        await Assert.That(exception).IsTypeOf<NotSupportedException>();
+        await Assert.That(exception!.Message).Contains(ReadOnlySandboxMessageFragment);
     }
 
     [Test]

@@ -111,8 +111,13 @@ foreach (var model in metadata.Models.Where(model => model.IsListed))
 
 `GetCliMetadata()` reads:
 - installed CLI version from `gemini --version`
-- default model from `~/.gemini/config.toml`
-- model catalog from `~/.gemini/models_cache.json`
+- default model from `~/.gemini/settings.json` (`model.name`) or `$GEMINI_CLI_HOME/.gemini/settings.json`
+- SDK-known model IDs from the official Gemini CLI catalog; account eligibility remains the CLI's responsibility
+
+Metadata probes follow `GeminiOptions.EnvironmentVariables` and
+`GeminiOptions.InheritEnvironmentVariables`. Their runtime and captured output are
+bounded by `CliMetadataProbeTimeout` and `CliMetadataMaximumOutputCharacters`;
+over-limit output fails explicitly instead of yielding partial metadata.
 
 ```csharp
 var update = client.GetCliUpdateStatus();
