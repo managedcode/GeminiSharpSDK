@@ -379,6 +379,8 @@ internal sealed record GeminiProcessInvocation(
     public Action? StandardOutputReadCompleted { get; init; }
 
     public Action? StandardErrorOutputLimitExceeded { get; init; }
+
+    public Action<bool>? StandardInputWriteFailed { get; init; }
 }
 
 internal interface IGeminiProcessRunner
@@ -478,7 +480,11 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
             standardOutput = new BoundedProcessOutputReader(process.StandardOutput,
                 invocation.MaximumProcessOutputCharacters, invocation.StandardOutputReadCompleted);
             standardOutputReadTask = standardOutput.ReadLineAsync(CancellationToken.None).AsTask();
-            standardInputWriteTask = WriteStandardInputAsync(process.StandardInput, invocation.Input, outputCancellation.Token);
+            standardInputWriteTask = WriteStandardInputAsync(process.StandardInput, invocation.Input,
+                invocation.StandardInputWriteFailed is null
+                    ? null
+                    : () => invocation.StandardInputWriteFailed(process.HasExited),
+                outputCancellation.Token);
             while (true)
             {
                 var readLineTask = standardOutputReadTask!;
@@ -839,11 +845,20 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
     private static async Task WriteStandardInputAsync(
         StreamWriter standardInput,
         string input,
+        Action? onWriteFailure,
         CancellationToken cancellationToken)
     {
-        await standardInput.WriteAsync(input.AsMemory(), cancellationToken).ConfigureAwait(false);
-        await standardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
-        standardInput.Close();
+        try
+        {
+            await standardInput.WriteAsync(input.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await standardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+            standardInput.Close();
+        }
+        catch (IOException)
+        {
+            onWriteFailure?.Invoke();
+            throw;
+        }
     }
 
     private static async Task AwaitStandardInputWriteAsync(

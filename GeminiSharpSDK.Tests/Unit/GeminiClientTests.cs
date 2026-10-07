@@ -7,6 +7,7 @@ using ManagedCode.GeminiSharpSDK.Tests.TestSupport;
 
 namespace ManagedCode.GeminiSharpSDK.Tests.Unit;
 
+[NotInParallel("CliProcess")]
 public class GeminiClientTests
 {
     private const string NpmFixtureSkipReason = "The npm.cmd invocation fixture is Windows-specific.";
@@ -36,6 +37,7 @@ public class GeminiClientTests
     private const string OversizedSettingsPrefix = "{ \"model\": { \"name\": \"";
     private const string OversizedSettingsPaddingPrefix = "\" }, \"padding\": \"";
     private const string OversizedSettingsSuffix = "\" }";
+    private static readonly TimeSpan RealCliMetadataProbeTimeout = TimeSpan.FromSeconds(20);
     private const string GeminiSettingsFixture =
         "{ \"model\": { \"name\": \"" + GeminiModels.Gemini35Flash + "\" } }";
     private const string ResumeSandboxPrefix = "GeminiClientTests-ResumeThread-";
@@ -293,7 +295,10 @@ public class GeminiClientTests
     [Test]
     public async Task GeminiCli_Smoke_GetCliMetadata_ReturnsInstalledVersion()
     {
-        using var client = new GeminiClient(new GeminiOptions());
+        using var client = new GeminiClient(new GeminiOptions
+        {
+            CliMetadataProbeTimeout = RealCliMetadataProbeTimeout,
+        });
 
         var metadata = client.GetCliMetadata();
 
@@ -322,6 +327,7 @@ public class GeminiClientTests
                     [GeminiCliHomeEnvironmentVariable] = cliHome,
                 },
                 InheritEnvironmentVariables = false,
+                CliMetadataProbeTimeout = RealCliMetadataProbeTimeout,
             });
 
             var metadata = client.GetCliMetadata();
@@ -406,7 +412,10 @@ public class GeminiClientTests
     [Test]
     public async Task GeminiCli_Smoke_GetCliUpdateStatus_ReturnsInstalledVersion()
     {
-        using var client = new GeminiClient(new GeminiOptions());
+        using var client = new GeminiClient(new GeminiOptions
+        {
+            CliMetadataProbeTimeout = RealCliMetadataProbeTimeout,
+        });
 
         var status = client.GetCliUpdateStatus();
 

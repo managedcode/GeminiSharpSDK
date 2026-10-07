@@ -20,6 +20,7 @@ Verify `ManagedCode.GeminiSharpSDK` behavior against real Gemini CLI contracts, 
 - Real integration runs must use existing Gemini CLI login/session; test harness does not use API key environment variables.
 - Auth-required real Gemini tests run under a shared parallel limiter so local full-suite execution does not deadlock or stall on concurrent headless CLI sessions.
 - Auth-required real Gemini thread/session tests must also run in unique git sandboxes under `tests/.sandbox/*` and keep those directories on disk for the duration of local test history, because Gemini CLI caches visited project paths in `~/.gemini/projects.json` and can fail later startup if a referenced sandbox disappears mid-suite.
+- Tests that launch installed CLIs or exercise SDK process cleanup share the TUnit `CliProcess` non-parallel constraint, preventing real CLI startup and cleanup fixtures from contending for process and pipe resources.
 - Multi-turn real Gemini tests must allocate cancellation budgets per turn instead of sharing one timeout across the whole conversation, so a slow first turn does not starve the second turn and create flaky resume/thread assertions.
 - Real integration model selection must be explicit: set `GEMINI_TEST_MODEL`, define `model` in `~/.gemini/config.toml`, or rely on a recent local Gemini session that already recorded the active model in the current profile.
 - Cover error paths and cancellation paths.

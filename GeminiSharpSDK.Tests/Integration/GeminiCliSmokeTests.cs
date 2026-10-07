@@ -4,6 +4,7 @@ using ManagedCode.GeminiSharpSDK.Internal;
 
 namespace ManagedCode.GeminiSharpSDK.Tests.Integration;
 
+[NotInParallel("CliProcess")]
 public class GeminiCliSmokeTests
 {
     private const string SolutionFileName = "ManagedCode.GeminiSharpSDK.slnx";
