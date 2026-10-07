@@ -862,6 +862,14 @@ internal sealed class DefaultGeminiProcessRunner : IGeminiProcessRunner
             await ThrowIfExitedWithFailureAsync(process, standardErrorTask, timeout).ConfigureAwait(false);
             throw;
         }
+        catch (IOException) when (standardInputWriteTask.IsFaulted &&
+                                  standardInputWriteTask.Exception?.GetBaseException() is IOException)
+        {
+            await process.WaitForExitAsync(CancellationToken.None).WaitAsync(timeout, CancellationToken.None)
+                .ConfigureAwait(false);
+            await ThrowIfExitedWithFailureAsync(process, standardErrorTask, timeout).ConfigureAwait(false);
+            throw;
+        }
         catch (Exception exception) when (process.HasExited)
         {
             await process.WaitForExitAsync(CancellationToken.None).WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
