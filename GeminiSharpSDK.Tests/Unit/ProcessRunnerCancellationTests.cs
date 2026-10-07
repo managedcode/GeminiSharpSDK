@@ -41,6 +41,7 @@ public class ProcessRunnerCancellationTests
     private const string SecondPromptLine = "second prompt line";
     private const int PipePressureCharacters = 262144;
     private const int LargePromptCharacters = 262144;
+    private const int StdinClosePressureCharacters = 16777216;
     private const int LargeProcessOutputCharacters = 1048576;
     private const char PromptCharacter = 'p';
     private const char StandardOutputPressureCharacter = 's';
@@ -292,7 +293,7 @@ public class ProcessRunnerCancellationTests
             sandbox,
             TimeSpan.FromMilliseconds(250))
         {
-            Input = new string(PromptCharacter, LargePromptCharacters),
+            Input = new string(PromptCharacter, StdinClosePressureCharacters),
             MaximumProcessOutputCharacters = LargeProcessOutputCharacters,
             StandardInputWriteFailed = rootExited => stdinFailureObserved.TrySetResult(rootExited),
         };
