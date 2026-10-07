@@ -42,8 +42,6 @@ public sealed class CliInstallationTests
     private const string HangMarkerName = "hang";
     private const string PipeHolderMarkerName = "pipe-holder";
     private const string PipeHolderPidFileName = "pipe-holder.pid";
-    private const string SetsidPathEnvironmentName = "GEMINI_TEST_SETSID_PATH";
-    private const string PipeHolderPidFileEnvironmentName = "GEMINI_TEST_PIPE_HOLDER_PID_FILE";
     private const string SetsidCommandName = "setsid";
     private const string CleanupMessage = "CLI installation process or output cleanup could not be confirmed within its configured timeout.";
     private const string SetsidRequiredMessage = "The detached pipe-holder cleanup fixture requires Linux setsid.";
@@ -86,9 +84,8 @@ public sealed class CliInstallationTests
         if (process.platform !== 'win32') fs.chmodSync(shimPath, 0o755);
         if (fs.existsSync(path.join(__dirname, 'pipe-holder'))) {
             const { spawnSync } = require('node:child_process');
-            const shellCommand = '"$1" /bin/sh -c \'echo $$ > "$1"; exec /bin/sleep 60\' holder "$2" &';
-            spawnSync('/bin/sh', ['-c', shellCommand, 'fixture', process.env.GEMINI_TEST_SETSID_PATH,
-                process.env.GEMINI_TEST_PIPE_HOLDER_PID_FILE], { stdio: 'inherit' });
+            const shellCommand = `setsid /bin/sh -c 'echo $$ > ${shellQuote(path.join(__dirname, 'pipe-holder.pid'))}; exec /bin/sleep 60' holder &`;
+            spawnSync('/bin/sh', ['-c', shellCommand], { stdio: 'inherit' });
         }
         if (fs.existsSync(path.join(__dirname, 'hang'))) {
             fs.writeFileSync(path.join(__dirname, 'child.pid'), String(process.pid));
@@ -259,8 +256,9 @@ public sealed class CliInstallationTests
             await File.WriteAllTextAsync(Path.Combine(fixture.NpmRoot, BinDirectoryName, PipeHolderMarkerName), string.Empty);
             var environment = fixture.Options.EnvironmentVariables.ToDictionary(
                 static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
-            environment[SetsidPathEnvironmentName] = FindExecutablePath(SetsidCommandName);
-            environment[PipeHolderPidFileEnvironmentName] = holderPidFile;
+            var setsidPath = FindExecutablePath(SetsidCommandName);
+            environment[PathName] = string.Join(Path.PathSeparator, environment[PathName],
+                Path.GetDirectoryName(setsidPath)!);
             var options = fixture.Options with
             {
                 EnvironmentVariables = environment,
