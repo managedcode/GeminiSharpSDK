@@ -9,6 +9,8 @@ Source of truth: local `gemini` CLI + upstream `@google/gemini-cli` package and 
 
 ## Purpose
 
+The SDK package version mirrors the targeted Gemini CLI version in its first three numeric components and uses the fourth component for an SDK hotfix. `GeminiCliCompatibility.TargetVersion` exposes the exact compatible CLI target without starting a process. `GetCliUpdateStatus()` separately reports the latest version discovered from npm.
+
 Expose runtime Gemini CLI metadata to SDK consumers:
 
 - installed `gemini-cli` version

@@ -13,6 +13,15 @@ public class GeminiClientTests
     private const string NpmFixtureSkipReason = "The npm.cmd invocation fixture is Windows-specific.";
     private const string NpmFixtureDirectoryPrefix = "GeminiNpmProbe-";
     private const string NpmFixtureScriptFileName = "npm.cmd";
+
+    [Test]
+    public async Task CliCompatibilityTarget_MatchesPackageVersionPrefix()
+    {
+        var packageVersion = typeof(GeminiClient).Assembly.GetName().Version;
+        await Assert.That(packageVersion).IsNotNull();
+        await Assert.That($"{packageVersion!.Major}.{packageVersion.Minor}.{packageVersion.Build}")
+            .IsEqualTo(GeminiCliCompatibility.TargetVersion);
+    }
     private const string NpmFixtureArgumentsFileName = "npm-arguments.txt";
     private const string NpmFixtureVersionOutput = "99.0.0";
     private const string NpmFixtureExpectedArguments = "view @google/gemini-cli version --silent";
