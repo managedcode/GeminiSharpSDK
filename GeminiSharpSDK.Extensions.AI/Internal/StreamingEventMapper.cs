@@ -34,6 +34,12 @@ internal static class StreamingEventMapper
         string? failureMessage = null;
         await foreach (var evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
         {
+            // Keep consuming until the core process runner proves natural exit and stream EOF.
+            if (failureMessage is not null)
+            {
+                continue;
+            }
+
             switch (evt)
             {
                 case InitEvent init:
@@ -233,10 +239,6 @@ internal static class StreamingEventMapper
                     break;
             }
 
-            if (failureMessage is not null)
-            {
-                break;
-            }
         }
 
         if (failureMessage is not null)
