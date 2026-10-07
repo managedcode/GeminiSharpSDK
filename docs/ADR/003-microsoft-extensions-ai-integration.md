@@ -21,7 +21,7 @@ Implement `IChatClient` from `Microsoft.Extensions.AI.Abstractions` in a **separ
 
 4. **Thread-per-call with ConversationId resume** — Each `GetResponseAsync` call creates or resumes a `GeminiThread`. Thread ID flows via `ChatResponse.ConversationId` for multi-turn continuity.
 
-5. **No AITool support** — Gemini CLI manages tools internally (commands, file changes, MCP). Consumer-registered `ChatOptions.Tools` are ignored; streamed tool activity is metadata only and is never interpreted as a consumer-callable function.
+5. **No AITool support** — Gemini CLI manages tools internally (commands, file changes, MCP). Nonempty consumer `ChatOptions.Tools` and explicit non-Auto `ToolMode` values fail before thread creation; streamed native tool activity is never interpreted as a consumer-callable function.
 
 ## Diagram
 
@@ -67,7 +67,7 @@ flowchart LR
 ### Neutral
 
 - Additional NuGet package to maintain.
-- `ChatOptions.Tools` is a no-op; documented as limitation.
+- `ChatOptions.Tools` and unsupported explicit `ToolMode` values fail closed; automatic mode without supplied functions remains supported.
 
 ## Alternatives considered
 

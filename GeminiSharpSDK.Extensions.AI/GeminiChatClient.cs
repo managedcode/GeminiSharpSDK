@@ -23,6 +23,7 @@ public sealed class GeminiChatClient : IChatClient
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
+        ChatOptionsMapper.ValidateFunctionCallingOptions(options);
 
         var (prompt, imageContents) = ChatMessageMapper.ToGeminiInput(messages);
         var threadOptions = ChatOptionsMapper.ToThreadOptions(options, _options);
@@ -46,6 +47,7 @@ public sealed class GeminiChatClient : IChatClient
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
+        ChatOptionsMapper.ValidateFunctionCallingOptions(options);
 
         var (prompt, imageContents) = ChatMessageMapper.ToGeminiInput(messages);
         var threadOptions = ChatOptionsMapper.ToThreadOptions(options, _options);

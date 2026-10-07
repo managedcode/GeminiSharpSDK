@@ -5,6 +5,8 @@ namespace ManagedCode.GeminiSharpSDK.Extensions.AI.Internal;
 
 internal static class ChatOptionsMapper
 {
+    private const string FunctionToolsUnsupportedMessage = "MEAI function tools are not supported by the Gemini CLI adapter.";
+    private const string ToolModeUnsupportedMessage = "Only automatic MEAI tool mode is supported by the Gemini CLI adapter.";
     internal const string SandboxModeKey = "gemini:sandbox_mode";
     internal const string WorkingDirectoryKey = "gemini:working_directory";
     internal const string ReasoningEffortKey = "gemini:reasoning_effort";
@@ -15,6 +17,19 @@ internal static class ChatOptionsMapper
     internal const string EphemeralKey = "gemini:ephemeral";
     internal const string ProfileKey = "gemini:profile";
     internal const string SkipGitRepoCheckKey = "gemini:skip_git_repo_check";
+
+    internal static void ValidateFunctionCallingOptions(ChatOptions? chatOptions)
+    {
+        if (chatOptions?.Tools is { Count: > 0 })
+        {
+            throw new NotSupportedException(FunctionToolsUnsupportedMessage);
+        }
+
+        if (chatOptions?.ToolMode is { } toolMode && toolMode is not AutoChatToolMode)
+        {
+            throw new NotSupportedException(ToolModeUnsupportedMessage);
+        }
+    }
 
     internal static ThreadOptions ToThreadOptions(ChatOptions? chatOptions, GeminiChatClientOptions clientOptions)
     {
