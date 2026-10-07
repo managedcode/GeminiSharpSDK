@@ -61,11 +61,13 @@ public sealed class GeminiClient : IDisposable
 
     public GeminiCliMetadata GetCliMetadata()
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(_options.CliMetadataMaximumFileCharacters);
         var executablePath = GeminiCliLocator.FindGeminiPath(_options.GeminiExecutablePath);
         var exec = CreateExec();
         return GeminiCliMetadataReader.Read(executablePath, exec.BuildEnvironment(_options.BaseUrl, _options.ApiKey),
             _options.InheritEnvironmentVariables ?? _options.EnvironmentVariables is null,
-            _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters);
+            _options.CliMetadataProbeTimeout, _options.CliMetadataMaximumOutputCharacters,
+            _options.CliMetadataMaximumFileCharacters);
     }
 
     public GeminiCliUpdateStatus GetCliUpdateStatus()
@@ -91,7 +93,8 @@ public sealed class GeminiClient : IDisposable
             null,
             _options.Logger,
             _options.ProcessTerminationTimeout,
-            _options.InheritEnvironmentVariables);
+            _options.InheritEnvironmentVariables,
+            _options.MaximumProcessOutputCharacters);
     }
 
     private static GeminiClientOptions CreateClientOptions(GeminiOptions options)

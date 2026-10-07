@@ -26,10 +26,9 @@ public class GeminiExecTests
             AdditionalCliArguments = ["--allowed-mcp-server-names", "playwright"],
         });
 
-        await Assert.That(commandArgs[0]).IsEqualTo("--prompt");
-        await Assert.That(commandArgs[1]).IsEqualTo("test prompt");
-        await Assert.That(commandArgs[2]).IsEqualTo("--output-format");
-        await Assert.That(commandArgs[3]).IsEqualTo("stream-json");
+        await Assert.That(commandArgs[0]).IsEqualTo("--prompt=test prompt");
+        await Assert.That(commandArgs[1]).IsEqualTo("--output-format");
+        await Assert.That(commandArgs[2]).IsEqualTo("stream-json");
         await Assert.That(ContainsPair(commandArgs, "--model", GeminiModels.AutoGemini3)).IsTrue();
         await Assert.That(commandArgs.Contains("--sandbox")).IsTrue();
         await Assert.That(ContainsPair(commandArgs, "--approval-mode", "default")).IsTrue();
@@ -38,6 +37,21 @@ public class GeminiExecTests
             .IsEquivalentTo(["/tmp/shared", "/tmp/other"]);
         await Assert.That(commandArgs.Contains("--allowed-mcp-server-names")).IsTrue();
         await Assert.That(commandArgs.Contains("playwright")).IsTrue();
+    }
+
+    [Test]
+    public async Task BuildCommandArgs_LeadingDashPromptRemainsPromptData()
+    {
+        var exec = new GeminiExec("gemini", null, null);
+
+        var commandArgs = exec.BuildCommandArgs(new GeminiExecArgs
+        {
+            Input = "--approval-mode=yolo --yolo",
+        });
+
+        await Assert.That(commandArgs[0]).IsEqualTo("--prompt=--approval-mode=yolo --yolo");
+        await Assert.That(commandArgs.Contains("--yolo")).IsFalse();
+        await Assert.That(commandArgs.Contains("--approval-mode=yolo")).IsFalse();
     }
 
     [Test]

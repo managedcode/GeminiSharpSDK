@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using ManagedCode.GeminiSharpSDK.Configuration;
 using ManagedCode.GeminiSharpSDK.Models;
 
 namespace ManagedCode.GeminiSharpSDK.Internal;
@@ -58,14 +59,16 @@ internal static class GeminiCliMetadataReader
     private const char SectionPrefix = '[';
 
     public static GeminiCliMetadata Read(string executablePath) =>
-        Read(executablePath, EmptyEnvironment, true, DefaultProbeTimeout, DefaultMaximumOutputCharacters);
+        Read(executablePath, EmptyEnvironment, true, DefaultProbeTimeout, DefaultMaximumOutputCharacters,
+            GeminiOptions.DefaultCliMetadataMaximumFileCharacters);
 
     public static GeminiCliMetadata Read(
         string executablePath,
         IReadOnlyDictionary<string, string> environment,
         bool inheritEnvironmentVariables,
         TimeSpan probeTimeout,
-        int maximumOutputCharacters)
+        int maximumOutputCharacters,
+        int maximumFileCharacters = GeminiOptions.DefaultCliMetadataMaximumFileCharacters)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
         ArgumentNullException.ThrowIfNull(environment);
@@ -73,7 +76,9 @@ internal static class GeminiCliMetadataReader
         var installedVersion = ReadInstalledVersion(executablePath, environment, inheritEnvironmentVariables,
             probeTimeout, maximumOutputCharacters);
         var homeDirectory = ResolveHomeDirectory(environment, inheritEnvironmentVariables);
-        var defaultModel = string.IsNullOrWhiteSpace(homeDirectory) ? null : ReadDefaultModel(homeDirectory);
+        var defaultModel = string.IsNullOrWhiteSpace(homeDirectory)
+            ? null
+            : ReadDefaultModel(homeDirectory, maximumFileCharacters);
         var models = ReadKnownModels();
         return new GeminiCliMetadata(installedVersion, defaultModel, models);
     }
@@ -392,7 +397,7 @@ internal static class GeminiCliMetadataReader
             leaseAcquisitionTimeout: probeTimeout);
     }
 
-    private static string? ReadDefaultModel(string homeDirectory)
+    private static string? ReadDefaultModel(string homeDirectory, int maximumCharacters)
     {
         var configPath = Path.Combine(homeDirectory, DotGeminiDirectory, SettingsFileName);
         if (!File.Exists(configPath))
@@ -402,7 +407,8 @@ internal static class GeminiCliMetadataReader
 
         try
         {
-            return ParseDefaultModelFromSettingsJson(File.ReadAllText(configPath));
+            var settings = BoundedMetadataFileReader.ReadAllText(configPath, maximumCharacters);
+            return ParseDefaultModelFromSettingsJson(settings);
         }
         catch (IOException)
         {

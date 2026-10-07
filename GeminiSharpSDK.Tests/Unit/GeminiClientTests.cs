@@ -18,11 +18,18 @@ public class GeminiClientTests
     private const string NpmFixtureScriptContent = "@echo off\r\necho %*>> \"%SDK_NPM_ARGS_FILE%\"\r\necho " + NpmFixtureVersionOutput + "\r\n";
     private const string NpmArgumentsEnvironmentVariable = "SDK_NPM_ARGS_FILE";
     private const string SystemRootEnvironmentVariable = "SystemRoot";
+    private const string HomeEnvironmentVariable = "HOME";
+    private const string UserProfileEnvironmentVariable = "USERPROFILE";
     private const string MetadataSandboxPrefix = "GeminiClientMetadata-";
     private const string PathEnvironmentVariable = "PATH";
     private const string GeminiCliHomeEnvironmentVariable = "GEMINI_CLI_HOME";
     private const string DotGeminiDirectoryName = ".gemini";
     private const string GeminiSettingsFileName = "settings.json";
+    private const int SmallMetadataFileLimit = 256;
+    private const string MetadataFileLimitMessage = "CLI metadata file exceeded the configured character limit.";
+    private const string OversizedSettingsPrefix = "{ \"model\": { \"name\": \"";
+    private const string OversizedSettingsPaddingPrefix = "\" }, \"padding\": \"";
+    private const string OversizedSettingsSuffix = "\" }";
     private const string GeminiSettingsFixture =
         "{ \"model\": { \"name\": \"" + GeminiModels.Gemini35Flash + "\" } }";
     private const string ResumeSandboxPrefix = "GeminiClientTests-ResumeThread-";
@@ -277,6 +284,8 @@ public class GeminiClientTests
                 {
                     [PathEnvironmentVariable] = Environment.GetEnvironmentVariable(PathEnvironmentVariable) ?? string.Empty,
                     [SystemRootEnvironmentVariable] = Environment.GetEnvironmentVariable(SystemRootEnvironmentVariable) ?? string.Empty,
+                    [HomeEnvironmentVariable] = Environment.GetEnvironmentVariable(HomeEnvironmentVariable) ?? string.Empty,
+                    [UserProfileEnvironmentVariable] = Environment.GetEnvironmentVariable(UserProfileEnvironmentVariable) ?? string.Empty,
                     [GeminiCliHomeEnvironmentVariable] = cliHome,
                 },
                 InheritEnvironmentVariables = false,
@@ -289,6 +298,44 @@ public class GeminiClientTests
             await Assert.That(metadata.Models.Any(model => model.Slug == GeminiModels.Gemini31FlashLite)).IsTrue();
             await Assert.That(metadata.Models.Single(model => model.Slug == GeminiModels.Gemini35Flash).IsApiSupported)
                 .IsFalse();
+        }
+        finally
+        {
+            Directory.Delete(cliHome, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task GeminiCli_GetCliMetadata_RejectsOversizedSettingsFile()
+    {
+        var cliHome = CreateMetadataSandbox();
+        var configDirectory = Path.Combine(cliHome, DotGeminiDirectoryName);
+        Directory.CreateDirectory(configDirectory);
+        try
+        {
+            File.WriteAllText(Path.Combine(configDirectory, GeminiSettingsFileName),
+                string.Concat(OversizedSettingsPrefix, GeminiModels.Gemini35Flash,
+                    OversizedSettingsPaddingPrefix, new string('x', SmallMetadataFileLimit + 1), OversizedSettingsSuffix));
+            using var client = new GeminiClient(new GeminiOptions
+            {
+                GeminiExecutablePath = GeminiCliLocator.FindGeminiPath(null),
+                EnvironmentVariables = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [PathEnvironmentVariable] = Environment.GetEnvironmentVariable(PathEnvironmentVariable) ?? string.Empty,
+                    [SystemRootEnvironmentVariable] = Environment.GetEnvironmentVariable(SystemRootEnvironmentVariable) ?? string.Empty,
+                    [HomeEnvironmentVariable] = Environment.GetEnvironmentVariable(HomeEnvironmentVariable) ?? string.Empty,
+                    [UserProfileEnvironmentVariable] = Environment.GetEnvironmentVariable(UserProfileEnvironmentVariable) ?? string.Empty,
+                    [GeminiCliHomeEnvironmentVariable] = cliHome,
+                },
+                InheritEnvironmentVariables = false,
+                CliMetadataMaximumFileCharacters = SmallMetadataFileLimit,
+            });
+
+            var action = () => client.GetCliMetadata();
+            var exception = await Assert.That(action).ThrowsException();
+
+            await Assert.That(exception).IsTypeOf<InvalidOperationException>();
+            await Assert.That(exception!.Message).Contains(MetadataFileLimitMessage);
         }
         finally
         {

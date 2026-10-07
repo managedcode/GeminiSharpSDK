@@ -11,6 +11,10 @@ public sealed record GeminiOptions
 
     public const int DefaultCliMetadataMaximumOutputCharacters = 65536;
 
+    public const int DefaultCliMetadataMaximumFileCharacters = 1048576;
+
+    public const int DefaultMaximumProcessOutputCharacters = 1048576;
+
     public string? GeminiExecutablePath { get; init; }
 
     public string? BaseUrl { get; init; }
@@ -27,7 +31,11 @@ public sealed record GeminiOptions
 
     public int CliMetadataMaximumOutputCharacters { get; init; } = DefaultCliMetadataMaximumOutputCharacters;
 
+    public int CliMetadataMaximumFileCharacters { get; init; } = DefaultCliMetadataMaximumFileCharacters;
+
     public TimeSpan ProcessTerminationTimeout { get; init; } = DefaultProcessTerminationTimeout;
+
+    public int MaximumProcessOutputCharacters { get; init; } = DefaultMaximumProcessOutputCharacters;
 
     public ILogger? Logger { get; init; }
 }
