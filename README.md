@@ -478,3 +478,5 @@ See [docs/Features/agent-framework-integration.md](https://github.com/managedcod
 dotnet build ManagedCode.GeminiSharpSDK.slnx -c Release -warnaserror
 dotnet test --solution ManagedCode.GeminiSharpSDK.slnx -c Release
 ```
+
+The CLI release target is `0.65.0`; native streaming remains incremental through the MEAI and Agent Framework adapters.

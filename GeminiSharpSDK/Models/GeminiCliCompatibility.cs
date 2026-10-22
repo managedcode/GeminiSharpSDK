@@ -4,5 +4,5 @@ namespace ManagedCode.GeminiSharpSDK.Models;
 public static class GeminiCliCompatibility
 {
     /// <summary>The upstream CLI version selected for managed installation and release verification; other installed versions are allowed.</summary>
-    public const string TargetVersion = "0.64.0";
+    public const string TargetVersion = "0.65.0";
 }
